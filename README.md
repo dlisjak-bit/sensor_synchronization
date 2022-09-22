@@ -2,7 +2,7 @@
 sensor_synchronization
 ## Latest version - nujno ohraniti (komentarji noter):
 sync test/realData/take3  
-rtde/examples/mycode/Datareader2
+rtde-2.6.0/mycode/Datareader2
 ## To Do:
 ### Cleanup
 - sync test/synchronization_test2 in sync test/synchronization_test3 sta identicna (nisem preprican glede synchronization_test)
