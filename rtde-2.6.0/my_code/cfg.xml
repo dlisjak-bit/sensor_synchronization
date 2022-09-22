@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<rtde_config>
+	<recipe key="state">
+		<field name="timestamp" type="DOUBLE"/>
+		<field name="actual_q" type="VECTOR6D"/>
+		<field name="actual_digital_output_bits" type="UINT64"/>
+	</recipe>
+</rtde_config>
