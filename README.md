@@ -1,7 +1,7 @@
 # sensor_synchronization
 sensor_synchronization
-## Latest version - nujno ohraniti:
-sync test/realData/take3
+## Latest version - nujno ohraniti (komentarji noter):
+sync test/realData/take3  
 rtde/examples/mycode/Datareader2
 ## To Do:
 ### Cleanup
