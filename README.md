@@ -11,3 +11,6 @@ rtde-2.6.0/mycode/Datareader2
 - real-time synchronization_test.py
 - two-way rtde exchange (real-time robot controls)
 - sensor setup
+- multithreading
+### Issues
+- sampling time, refresh rate?
