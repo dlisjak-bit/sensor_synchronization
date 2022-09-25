@@ -8,4 +8,14 @@
 		<field name="target_speed_fraction" type="DOUBLE"/>
 		<field name="actual_digital_output_bits" type="UINT64"/>
 	</recipe>
+	<recipe key="setspeed">
+		<field name="speed_slider_fraction" type="DOUBLE"/>
+	</recipe>
+	<recipe key="speedcontrol">
+		<field name="speed_slider_mask" type="UINT32"/>
+	</recipe>
+	<recipe key="digout">
+		<field name="configurable_digital_output" type ="UINT8" />
+	</recipe>
+	
 </rtde_config>

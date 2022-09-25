@@ -12,6 +12,14 @@ import rtde.rtde as rtde
 import rtde.rtde_config as rtde_config
 
 
+# --------------GUIDE----------------------------------------
+# run the script as python3 realtime_sync.py <-t> <-r>
+# optional flags: 
+# -t: show calculated reference time in commandline
+# -r: record a reference loop before starting data collection
+
+
+
 # system variables
 updateFrequency = 125
 samplingTime = 120   #sampling time in seconds
@@ -25,6 +33,10 @@ ROBOT_PORT = 30004
 argumentList = sys.argv[1:]
 
 def new_reference():
+
+    """ Record new reference motion. (Program needs to start by setting one digital output bit on and end by setting it off.
+        Warning: end program by moving back to the beginning or set DO off after going back to start"""
+
     ta = []
     qa = []
     qda = []
@@ -85,6 +97,9 @@ def new_reference():
     return (ogfilename)
 
 def read_reference(file):
+
+    """ Read reference file. """
+
     data = []
     with open(file, 'r') as f:
         f.readline()    # throw away the header line
@@ -174,6 +189,8 @@ def get_normalized_t(ref, tref, pt, method="euclidean", spread=2, subdivisions=1
     return samplepts[p[0][0]]
 
 def data_reader(tref, ref):
+
+    """ Continuously read data from robot and find reference time for each point """
     #samplingState = "waiting for sync low"
     keep_running = True
     print("Sampling started")
@@ -219,7 +236,8 @@ def data_reader(tref, ref):
             datapt = np.array(datapt).transpose()
             datapt = datapt.reshape(12,1)
             normalized_t = get_normalized_t(ref, tref, datapt, method)
-            print(normalized_t, end="\r")
+            if show_time:
+                print(normalized_t, end="\r")
                  
             #print(f"Recorded {i+1} of {samplingTime} s")
             #if samplingState == "finished":
@@ -230,12 +248,16 @@ def data_reader(tref, ref):
 
 def main(argumentList, reference_file):
     
+
+
     record_reference = False
+    global show_time
+    show_time = False
 
     # Using arguments:
-    options = "rt:"
+    options = "rt"
     # Long options
-    long_options = ["reference", "test"]
+    long_options = ["reference", "time"]
     try:
         # Parsing argument
         arguments, values = getopt.getopt(argumentList, options, long_options)
@@ -247,8 +269,9 @@ def main(argumentList, reference_file):
                 print ("Recording reference ...")
                 record_reference = True
                 
-            elif currentArgument in ("-t", "--test"):
-                print ("Test mode - 100s ...")
+            elif currentArgument in ("-t", "--time"):
+                show_time = True
+                print ("Showing reference time ...")
                 
     except getopt.error as err:
         # output error, and return with an error code
