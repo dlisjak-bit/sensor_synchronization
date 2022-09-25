@@ -17,5 +17,9 @@
 	<recipe key="digout">
 		<field name="configurable_digital_output" type ="UINT8" />
 	</recipe>
-	
+	<recipe key="in">
+        <field name="input_bit_register_64" type="BOOL"/>
+        <field name="input_bit_register_65" type="BOOL"/>
+    </recipe>
 </rtde_config>
+	
