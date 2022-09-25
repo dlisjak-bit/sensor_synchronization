@@ -5,6 +5,7 @@ from perlin_noise import PerlinNoise
 import timeit
 import os
 import sys
+import getopt
 sys.path.append('..')
 import time
 import rtde.rtde as rtde
@@ -15,10 +16,77 @@ import rtde.rtde_config as rtde_config
 updateFrequency = 125
 samplingTime = 120   #sampling time in seconds
 method = "euclidean"
+reference_file = "reference_1664104386.csv"
 
 ROBOT_HOST = '192.168.65.244'   # actual robot
 ROBOT_HOST = '192.168.56.101'   # virtual robot
 ROBOT_PORT = 30004
+
+argumentList = sys.argv[1:]
+
+def new_reference():
+    ta = []
+    qa = []
+    qda = []
+    ssa = []
+    tsfa = []
+    doa = []
+
+    timestamp = str(int(time.time()))
+    ogfilename = f"reference_{timestamp}.csv"
+    with open(ogfilename, "w") as f:
+        f.write("t,q0,q1,q2,q3,q4,q5,qd0,qd1,qd2,qd3,qd4,qd5,ss,tsf,do\n") # write header row
+
+        samplingState = "waiting for sync low"
+        print("Reference Sampling started")
+        for i in range(samplingTime):
+            for j in range(updateFrequency):
+                # receive the current state
+                state = con.receive()
+                
+                if state is None:
+                    print("connection lost, breaking")
+                    break
+
+                t = state.timestamp
+                q = state.target_q
+                qd = list(normalize(state.target_qd))
+                ss = state.speed_scaling
+                tsf = state.target_speed_fraction
+                do = state.actual_digital_output_bits
+
+                if samplingState == "waiting for sync low":
+                    if (do%2)==0:
+                        samplingState = "waiting for sync high"
+                elif samplingState == "waiting for sync high":
+                    if (do%2)==1:
+                        print("cycle start detected")
+                        samplingState = "collecting data"
+                if samplingState == "collecting data":
+                    if (do%2)==0:
+                        samplingState = "finished"
+                        break
+                    ta.append(t)
+                    qa.append(q)
+                    qda.append(qd)
+                    ssa.append(ss)
+                    tsfa.append(tsf)
+                    doa.append(do)
+                    data = f"{t},{str(q)[1:-1]},{str(qd)[1:-1]},{ss},{tsf},{do}"
+                    f.write(data+"\n")        
+            print(f"Recorded {i+1} of {samplingTime} s")
+            if samplingState == "finished":
+                print("cycle complete - reference motion recorded")
+                break
+
+    con.send_pause()
+    con.disconnect()
+
+    if samplingState != "finished":
+        print("WARNING: Program timed out before robot cycle was complete.")
+
+    return (ogfilename)
+
 
 def read_reference(file):
     data = []
@@ -111,7 +179,7 @@ def get_normalized_t(ref, tref, pt, method="euclidean", spread=2, subdivisions=1
     d,p = get_distance(subdivided-pt)
     return samplepts[p[0][0]]
 
-def data_reader():
+def data_reader(tref, ref):
     samplingState = "waiting for sync low"
     keep_running = True
     i = 0
@@ -128,14 +196,13 @@ def data_reader():
                 break
         
             datapt = []
+            # if some past datapoints are required in the future, maybe import queue
             t = state.timestamp
             q = state.target_q
             qd = list(normalize(state.target_qd))
             ss = state.speed_scaling
             tsf = state.target_speed_fraction
             do = state.actual_digital_output_bits
-
-            # print(do)
 
             if samplingState == "waiting for sync low":
                 if (do%2)==0:
@@ -148,14 +215,20 @@ def data_reader():
                 if (do%2)==0:
                     samplingState = "finished"
                     break
-                datapt += t + q + qd + ss + tsf + do
+                datapt.append(t)
+                datapt.extend(q)
+                datapt.extend(qd)
+                datapt.append(ss)
+                datapt.append(tsf)
+                datapt.append(do)
+
                 datapt = np.array(datapt).transpose()
                 print(datapt)
                 #normalized_t = get_normalized_t(ref, tref, datapt, method)
                 #print(normalized_t)
             
                 
-        print(samplingState)
+         
         i += 1
         print(i)        
             #print(f"Recorded {i+1} of {samplingTime} s")
@@ -165,13 +238,37 @@ def data_reader():
 
 
 
-def main():
-    #record_reference option?
-    connect_robot()
-    t100,ax100,pct100,do100 = read_reference("pct100_1654773570.csv")
-    global ref, tref
-    ref = ax100
-    tref = t100
-    data_reader()
+def main(argumentList, reference_file):
+    
+    record_reference = False
 
-main()
+    # Using arguments:
+    options = "rt:"
+    # Long options
+    long_options = ["reference", "test"]
+    try:
+        # Parsing argument
+        arguments, values = getopt.getopt(argumentList, options, long_options)
+        
+        # checking each argument
+        for currentArgument, currentValue in arguments:
+    
+            if currentArgument in ("-r", "--reference"):
+                print ("Recording reference ...")
+                record_reference = True
+                
+            elif currentArgument in ("-t", "--test"):
+                print ("Test mode - 100s ...")
+                
+    except getopt.error as err:
+        # output error, and return with an error code
+        print (str(err))
+
+    connect_robot()
+    if record_reference:
+        reference_file = new_reference()
+        print("Using new reference motion ...")
+    tref,ref,pct100,do100 = read_reference(reference_file)
+    data_reader(tref, ref)
+
+main(argumentList, reference_file)
