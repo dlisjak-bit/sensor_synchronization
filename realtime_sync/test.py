@@ -38,14 +38,18 @@ if not con.send_start():
     print("failed to start data transfer")
     sys.exit()
 
-input_names, input_types = config.get_recipe("in")
 
+
+input_names, input_types = config.get_recipe("in")
 input_data = con.send_input_setup(input_names, input_types)
 
-finish_capture=True
-camera_ready=False
+speedcontrol_names, speedcontrol_types = config.get_recipe("speedcontrol")
+speedcontrol=con.send_input_setup(speedcontrol_names, speedcontrol_types)
 
+finish_capture=True
+camera_ready=True
 input_data.input_bit_register_64 = int(finish_capture)
 input_data.input_bit_register_65 = int(camera_ready)
+speedcontrol.speed_slider_mask = 0.5
 
 con.send(input_data)

@@ -1,4 +1,3 @@
-from tempfile import TemporaryFile
 import matplotlib.pyplot as plt
 import numpy as np
 from perlin_noise import PerlinNoise
@@ -10,6 +9,9 @@ sys.path.append('..')
 import time
 import rtde.rtde as rtde
 import rtde.rtde_config as rtde_config
+from threading import Thread
+import time
+
 
 
 # --------------GUIDE----------------------------------------
@@ -17,6 +19,8 @@ import rtde.rtde_config as rtde_config
 # optional flags: 
 # -t: show calculated reference time in commandline
 # -r: record a reference loop before starting data collection
+# Type user input: <command>
+# stop: halts the process, must be restarted manually
 
 
 
@@ -24,13 +28,42 @@ import rtde.rtde_config as rtde_config
 updateFrequency = 125
 samplingTime = 120   #sampling time in seconds
 method = "euclidean"
-reference_file = "reference_1664106886.csv"
+reference_file = "reference_1664185538.csv"
+thread_running = True
 
 ROBOT_HOST = '192.168.65.244'   # actual robot
 ROBOT_HOST = '192.168.56.101'   # virtual robot
 ROBOT_PORT = 30004
 
 argumentList = sys.argv[1:]
+
+
+def argparse(record_reference, show_time):
+
+    # Using arguments:
+    options = "rt"
+    # Long options
+    long_options = ["reference", "time"]
+    try:
+        # Parsing argument
+        arguments, values = getopt.getopt(argumentList, options, long_options)
+        
+        # checking each argument
+        for currentArgument, currentValue in arguments:
+    
+            if currentArgument in ("-r", "--reference"):
+                print ("Recording reference ...")
+                record_reference = True
+                
+            elif currentArgument in ("-t", "--time"):
+                show_time = True
+                print ("Showing reference time ...")
+                
+    except getopt.error as err:
+        # output error, and return with an error code
+        print (str(err))
+    
+    return record_reference, show_time
 
 def new_reference():
 
@@ -128,6 +161,11 @@ def connect_robot():
     state_names, state_types = config.get_recipe("state")
     con.send_output_setup(state_names, state_types, frequency = updateFrequency)
 
+    global input_names, input_types
+    input_names, input_types = config.get_recipe("in")
+    global input_data
+    input_data = con.send_input_setup(input_names, input_types)
+
     if not con.send_start():
         print("failed to start data transfer")
         sys.exit()
@@ -193,7 +231,7 @@ def data_reader(tref, ref):
     """ Continuously read data from robot and find reference time for each point """
     #samplingState = "waiting for sync low"
     keep_running = True
-    print("Sampling started")
+    print("Receiving data from robot.")
     while keep_running:
         #for i in range(samplingTime):
         for j in range(updateFrequency):
@@ -246,42 +284,61 @@ def data_reader(tref, ref):
     con.send_pause()
     con.disconnect()
 
-def main(argumentList, reference_file):
+def send_command(user_input):
+
+    global input_data
     
+    if user_input == "stop" or user_input == "halt":
+        input_data.input_bit_register_65 = int(True)
+        con.send(input_data)
+        time.sleep(0.5)
+        input_data.input_bit_register_65 = int(False)
+        con.send(input_data)
+        print("Process halted.")
 
+def take_input_thread():
+    time.sleep(2)
+    while True:
+        user_input = input('Type user input: ')
+        # doing something with the input
+        send_command(user_input)
 
-    record_reference = False
+def data_processor_thread():
+    
+    global reference_file
+    global record_reference
     global show_time
-    show_time = False
 
-    # Using arguments:
-    options = "rt"
-    # Long options
-    long_options = ["reference", "time"]
-    try:
-        # Parsing argument
-        arguments, values = getopt.getopt(argumentList, options, long_options)
-        
-        # checking each argument
-        for currentArgument, currentValue in arguments:
     
-            if currentArgument in ("-r", "--reference"):
-                print ("Recording reference ...")
-                record_reference = True
-                
-            elif currentArgument in ("-t", "--time"):
-                show_time = True
-                print ("Showing reference time ...")
-                
-    except getopt.error as err:
-        # output error, and return with an error code
-        print (str(err))
 
     connect_robot()
+
     if record_reference:
         reference_file = new_reference()
         print("Using new reference motion ...")
+
     tref,ref,pct100,do100 = read_reference(reference_file)
+
     data_reader(tref, ref)
 
-main(argumentList, reference_file)
+def main():
+    
+    global record_reference
+    record_reference = False
+    global show_time
+    show_time = False
+    record_reference, show_time = argparse(record_reference, show_time)
+    
+    t1 = Thread(target=data_processor_thread)
+    if not show_time:
+        t2 = Thread(target=take_input_thread)
+
+    t1.start()
+    if not show_time:
+        t2.start()
+    
+    t2.join()  # interpreter will wait until your process get completed or terminated
+    thread_running = False
+    print('Stopped taking user input')
+
+main()
