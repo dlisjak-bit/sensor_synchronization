@@ -309,8 +309,6 @@ def data_processor_thread():
     global record_reference
     global show_time
 
-    
-
     connect_robot()
 
     if record_reference:
