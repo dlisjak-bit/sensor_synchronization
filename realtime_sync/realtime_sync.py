@@ -252,10 +252,7 @@ def data_reader(tref, ref):
 
     """ Continuously read data from robot and find reference time for each point """
     
-<<<<<<< HEAD
     global keep_running
-=======
->>>>>>> 95ab549f019c66800d5437e9c3068a609c40dcf0
     keep_running = True
     print("Receiving data from robot.")
     while keep_running:
@@ -280,15 +277,10 @@ def data_reader(tref, ref):
             datapt = np.append(q,qd)
             datapt = np.array(datapt).transpose()
             datapt = datapt.reshape(12,1)
-            
             normalized_t = get_normalized_t(ref, tref, datapt, method)
             if show_time:
                 print(normalized_t, end="\r")
-<<<<<<< HEAD
 
-=======
-                
->>>>>>> 95ab549f019c66800d5437e9c3068a609c40dcf0
     con.send_pause()
     con.disconnect()
 
@@ -331,6 +323,7 @@ def take_input_thread():
     keep_running = True
     while keep_running:
         user_input = input('Type user input: ')
+        # doing something with the input
         send_command(user_input)
 
 def data_processor_thread():
@@ -367,8 +360,4 @@ def main():
         t2.start()
 
 if __name__ == "__main__":
-<<<<<<< HEAD
      main()
-=======
-    main()
->>>>>>> 95ab549f019c66800d5437e9c3068a609c40dcf0
