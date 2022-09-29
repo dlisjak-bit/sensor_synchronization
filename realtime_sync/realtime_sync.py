@@ -15,12 +15,15 @@ import time
 
 
 # --------------GUIDE----------------------------------------
+# before running test_2.urp, run initialize variables.py
 # run the script as python3 realtime_sync.py <-t> <-r>
 # optional flags: 
 # -t: show calculated reference time in commandline
 # -r: record a reference loop before starting data collection
 # Type user input: <command>
 # stop: halts the process, must be restarted manually
+# speed <value (1-100)>: percentage speed slider to be set
+# exit: terminates program, robot continues operation
 
 
 
@@ -30,6 +33,7 @@ samplingTime = 120   #sampling time in seconds
 method = "euclidean"
 reference_file = "reference_1664185538.csv"
 thread_running = True
+robot_speed = 100
 
 ROBOT_HOST = '192.168.65.244'   # actual robot
 ROBOT_HOST = '192.168.56.101'   # virtual robot
@@ -161,14 +165,37 @@ def connect_robot():
     state_names, state_types = config.get_recipe("state")
     con.send_output_setup(state_names, state_types, frequency = updateFrequency)
 
-    global input_names, input_types
-    input_names, input_types = config.get_recipe("in")
-    global input_data
-    input_data = con.send_input_setup(input_names, input_types)
+    # input bit for halting the process
+    global input_65_names, input_65_types
+    input_65_names, input_65_types = config.get_recipe("in65")
+    global input_65
+    input_65 = con.send_input_setup(input_65_names, input_65_types)
+
+    # input bit for setting the speed
+    global input_66_names, input_66_types
+    input_66_names, input_66_types = config.get_recipe("in66")
+    global input_66
+    input_66 = con.send_input_setup(input_66_names, input_66_types)
+
+    # input int for setting the speed
+    global speed_int_names, speed_int_types
+    speed_int_names, speed_int_types = config.get_recipe("speed_int")
+    global speed_int
+    speed_int = con.send_input_setup(speed_int_names, speed_int_types)
 
     if not con.send_start():
         print("failed to start data transfer")
         sys.exit()
+
+    # setting default values so the program can run
+    input_65.input_bit_register_65 = int(False)
+    con.send(input_65)
+
+    input_66.input_bit_register_66 = int(False)
+    con.send(input_66)
+
+    speed_int.input_int_register_25 = robot_speed
+    con.send(speed_int)
 
 def get_manhattan(err):
     d_manhattan = np.sum(np.abs(err), axis=0)
@@ -230,6 +257,7 @@ def data_reader(tref, ref):
 
     """ Continuously read data from robot and find reference time for each point """
     #samplingState = "waiting for sync low"
+    global keep_running
     keep_running = True
     print("Receiving data from robot.")
     while keep_running:
@@ -286,19 +314,42 @@ def data_reader(tref, ref):
 
 def send_command(user_input):
 
-    global input_data
+    global input_65
+    global input_66
+    split = user_input.split()
     
     if user_input == "stop" or user_input == "halt":
-        input_data.input_bit_register_65 = int(True)
-        con.send(input_data)
+        input_65.input_bit_register_65 = int(True)
+        con.send(input_65)
         time.sleep(0.5)
-        input_data.input_bit_register_65 = int(False)
-        con.send(input_data)
+        input_65.input_bit_register_65 = int(False)
+        con.send(input_65)
         print("Process halted.")
+    elif split[0] == "speed":
+        if (int(split[1]) < 101) & (int(split[1]) > 0):
+            speed_int.input_int_register_25 = int(split[1])
+            con.send(speed_int)
+            input_65.input_bit_register_66 = int(True)
+            con.send(input_65)
+            time.sleep(0.5)
+            input_65.input_bit_register_65 = int(False)
+            con.send(input_65)
+            time.sleep(1)
+            print(f"Speed set to {split[1]}%")
+        else: 
+            print("Incorrect value. Speed must be between 1 and 100")
+    elif user_input == "exit":
+        print("Terminating program realtime_sync.py ... Robot will continue operation.")
+        global keep_running
+        keep_running=False
+    else:
+        print("Incorrect command.")
 
 def take_input_thread():
     time.sleep(2)
-    while True:
+    global keep_running
+    keep_running = True
+    while keep_running:
         user_input = input('Type user input: ')
         # doing something with the input
         send_command(user_input)
@@ -318,6 +369,7 @@ def data_processor_thread():
     tref,ref,pct100,do100 = read_reference(reference_file)
 
     data_reader(tref, ref)
+    print("Stopped receiving data.")
 
 def main():
     
@@ -334,9 +386,5 @@ def main():
     t1.start()
     if not show_time:
         t2.start()
-    
-    t2.join()  # interpreter will wait until your process get completed or terminated
-    thread_running = False
-    print('Stopped taking user input')
 
 main()
