@@ -141,7 +141,6 @@ def read_reference(file):
     with open(file, 'r') as f:
         f.readline()    # throw away the header line
         for l in f:
-            #print(l.strip())
             data.append([float(x) for x in l.strip().split(',')])   # read csv
     data = np.array(data).transpose()                               # transpose matrix
                                                                     # separate data:
@@ -238,13 +237,9 @@ def get_normalized_t(ref, tref, pt, method="euclidean", spread=2, subdivisions=1
     idxl = max(0, p[0][0]-spread)
     idxh = min(len(ref[0]), p[0][0]+spread+2)
     didx = idxh-idxl
-    #breakpoint()
-    #print(p, idxl, idxh)
 
     # Allocate array to divide time into more sample points
     samplepts = np.linspace(tref[idxl],tref[idxh-1], didx*subdivisions)
-    
-    #subdivided = np.interp(samplepts, tref[idxl:idxh], ref[:,idxl:idxh])
 
     # Interpolate the data between reference time points and fill samplepts array
     subdivided = interp_nd(samplepts, tref[idxl:idxh], ref[:,idxl:idxh])
@@ -256,12 +251,11 @@ def get_normalized_t(ref, tref, pt, method="euclidean", spread=2, subdivisions=1
 def data_reader(tref, ref):
 
     """ Continuously read data from robot and find reference time for each point """
-    #samplingState = "waiting for sync low"
+    
     global keep_running
     keep_running = True
     print("Receiving data from robot.")
     while keep_running:
-        #for i in range(samplingTime):
         for j in range(updateFrequency):
 
             # receive the current state
@@ -280,35 +274,13 @@ def data_reader(tref, ref):
             tsf = state.target_speed_fraction
             do = state.actual_digital_output_bits
 
-            #if samplingState == "waiting for sync low":
-                #if (do%2)==0:
-                    #samplingState = "waiting for sync high"
-            #elif samplingState == "waiting for sync high":
-                #if (do%2)==1:
-                    #print("cycle start detected")
-                    #samplingState = "collecting data"
-            #if samplingState == "collecting data":
-                #if (do%2)==0:
-                    #samplingState = "finished"
-                    #break
-            #datapt.append(t)
             datapt = np.append(q,qd)
-            #datapt.extend(q)
-            #datapt.extend(qd)
-            #datapt.append(ss)
-            #datapt.append(tsf)
-            #datapt.append(do)
-
             datapt = np.array(datapt).transpose()
             datapt = datapt.reshape(12,1)
             normalized_t = get_normalized_t(ref, tref, datapt, method)
             if show_time:
                 print(normalized_t, end="\r")
-                 
-            #print(f"Recorded {i+1} of {samplingTime} s")
-            #if samplingState == "finished":
-                #print("cycle complete")
-                #break
+
     con.send_pause()
     con.disconnect()
 
@@ -387,4 +359,5 @@ def main():
     if not show_time:
         t2.start()
 
-main()
+if __name__ == "__main__":
+     main()
