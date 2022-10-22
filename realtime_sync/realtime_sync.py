@@ -10,8 +10,9 @@ import time
 import rtde.rtde as rtde
 import rtde.rtde_config as rtde_config
 from threading import Thread
-import time
-
+import time, datetime
+import serial
+from serial.serialutil import *
 
 
 # --------------GUIDE----------------------------------------
@@ -38,6 +39,8 @@ robot_speed = 100
 ROBOT_HOST = '192.168.65.244'   # actual robot
 ROBOT_HOST = '192.168.56.101'   # virtual robot
 ROBOT_PORT = 30004
+
+NUCLEO_BOARD_PORT = "COM7"
 
 argumentList = sys.argv[1:]
 
@@ -251,7 +254,7 @@ def get_normalized_t(ref, tref, pt, method="euclidean", spread=2, subdivisions=1
 def data_reader(tref, ref):
 
     """ Continuously read data from robot and find reference time for each point """
-    
+    global normalized_t
     global keep_running
     keep_running = True
     print("Receiving data from robot.")
@@ -317,6 +320,25 @@ def send_command(user_input):
     else:
         print("Incorrect command.")
 
+def parsePacket(txt):
+    ID = int.from_bytes(txt[0:1], 'big', signed=False)
+    temp = int.from_bytes(txt[1:2], 'big', signed=True)
+    msmnts = np.zeros((3,16),np.uintc)
+    for i in range(2,50, 3):
+        #msmnts.append(int.from_bytes(txt[i:i+3], 'big', signed=True))
+        detection = int((txt[i] >> 4) & 0x0f)
+        status = int(txt[i] & 0x0f)
+        distance = int.from_bytes(txt[i+1:i+3], 'big', signed=True)
+        msmnts[0,int((i-2)/3)] = detection
+        msmnts[1,int((i-2)/3)] = status
+        msmnts[2,int((i-2)/3)] = distance 
+    return ID, temp, msmnts
+
+def check_sensors(ID, temp, msmnts, normalized_t):
+    for sensor in range(len(msmnts[0])):
+        if msmnts[0, sensor] == "Working": #change to whatever returns ok
+            # compare distance to reference distance - must do interpolation again to find right time?
+
 def take_input_thread():
     time.sleep(2)
     global keep_running
@@ -343,6 +365,51 @@ def data_processor_thread():
     data_reader(tref, ref)
     print("Stopped receiving data.")
 
+def sensor_thread():
+    collect_data = True   
+    
+    label = "sensor_data"
+    #label = input("label:\t")
+    #timestamp = str(int(time.time()))
+    time = datetime.datetime.now()
+    timestamp = f"{time.year}{time.month}{time.day}{time.hour}{time.minute}{time.second}" #microseconds, tzinfo
+    filename = f"recordings\{timestamp}_{label}.csv"
+    with open(filename, 'w') as f:
+        with serial.Serial() as ser:
+            ser.baudrate = 460800
+            ser.port = NUCLEO_BOARD_PORT
+            ser.parity = PARITY_EVEN
+            ser.stopbits = STOPBITS_ONE
+            ser.open()
+
+            ser.write(b'gs')     # start and stop ranging (bugfix)
+            time.sleep(2)
+            while ser.inWaiting(): ser.read()   # purge buffer
+            
+            ser.write(b'g')     # go
+            txt = ser.readline()    # read line which just confirms that ranging is working
+            print(txt)
+            
+            while collect_data:   # sampling time
+                t0 = datetime.datetime.now()
+                
+                for j in range(45):             # at 45 FPS
+                    txts = []
+                    for k in range(1):          # for each of the eight sensors
+                        txt = ser.read(50)
+                    print(parsePacket(txt))
+                    check_sensors(parsePacket(txt), normalized_t)
+                    #f.write(f"{i}, {j};\n")
+                        
+                t1 = datetime.datetime.now()
+                
+                print("dt: ", t1-t0)
+            ser.write(b's')     # stop
+            print(txt)
+            for t in txts:
+                print(parsePacket(t))
+            #f.write(txt.decode('utf-8'))
+
 def main():
     
     global record_reference
@@ -354,10 +421,13 @@ def main():
     t1 = Thread(target=data_processor_thread)
     if not show_time:
         t2 = Thread(target=take_input_thread)
+    t3 = Thread(target=sensor_thread)
 
     t1.start()
     if not show_time:
         t2.start()
+    t3.start()
+
 
 if __name__ == "__main__":
      main()
