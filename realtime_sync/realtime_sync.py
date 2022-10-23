@@ -171,11 +171,25 @@ def new_sensor_reference():
         for i in range(15):
             f.write(f"distance{i},")
         f.write("distance15\n")
+        with serial.Serial() as ser:
+            ser.baudrate = 460800
+            ser.port = NUCLEO_BOARD_PORT
+            ser.parity = PARITY_EVEN
+            ser.stopbits = STOPBITS_ONE
+            ser.open()
 
-        samplingState = "waiting for sync low"
-        print("Sensor Reference Sampling started")
-        for i in range(samplingTime):
-            for j in range(45):
+            ser.write(b'gs')     # start and stop ranging (bugfix)
+            time.sleep(2)
+            while ser.inWaiting(): ser.read()   # purge buffer
+            
+            ser.write(b'g')     # go
+            txt = ser.readline()    # read line which just confirms that ranging is working
+            print(txt)
+
+            samplingState = "waiting for sync low"
+            print("Sensor Reference Sampling started")
+            for i in range(samplingTime):
+                for j in range(45):
 
 
 def read_sensor_reference(file):
