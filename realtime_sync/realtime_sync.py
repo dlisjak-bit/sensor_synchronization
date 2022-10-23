@@ -72,6 +72,13 @@ def argparse(record_reference, show_time):
     
     return record_reference, show_time
 
+def normalize(v):
+    v=np.array(v)
+    norm=np.linalg.norm(v)
+    if norm==0:
+        norm=np.finfo(v.dtype).eps
+    return v/norm
+
 def new_reference():
 
     """ Record new reference motion. (Program needs to start by setting one digital output bit on and end by setting it off.
@@ -135,6 +142,44 @@ def new_reference():
         print("WARNING: Program timed out before robot cycle was complete.")
 
     return (ogfilename)
+
+def parsePacket(txt):
+    ID = int.from_bytes(txt[0:1], 'big', signed=False)
+    temp = int.from_bytes(txt[1:2], 'big', signed=True)
+    msmnts = np.zeros((3,16),np.uintc)
+    for i in range(2,50, 3):
+        #msmnts.append(int.from_bytes(txt[i:i+3], 'big', signed=True))
+        detection = int((txt[i] >> 4) & 0x0f)
+        status = int(txt[i] & 0x0f)
+        distance = int.from_bytes(txt[i+1:i+3], 'big', signed=True)
+        msmnts[0,int((i-2)/3)] = detection
+        msmnts[1,int((i-2)/3)] = status
+        msmnts[2,int((i-2)/3)] = distance 
+    return ID, temp, msmnts
+
+def new_sensor_reference():
+    timestamp = str(int(time.time()))
+    ogfilename = f"sensor_reference_{timestamp}.csv"
+    with open(ogfilename, "w") as f:
+
+        # Write header.
+        f.write("t,")
+        for i in range(16):
+            f.write(f"detection{i},")
+        for i in range(16):
+            f.write(f"status{i},")
+        for i in range(15):
+            f.write(f"distance{i},")
+        f.write("distance15\n")
+
+        samplingState = "waiting for sync low"
+        print("Sensor Reference Sampling started")
+        for i in range(samplingTime):
+            for j in range(45):
+
+
+def read_sensor_reference(file):
+    #read sensor reference and return matrix
 
 def read_reference(file):
 
@@ -208,13 +253,6 @@ def get_euclidean(err):
     d_euclidean = np.sqrt(np.sum(np.square(err), axis=0))
     p_min_euclidean = np.where(d_euclidean == np.amin(d_euclidean))
     return d_euclidean, p_min_euclidean
-
-def normalize(v):
-    v=np.array(v)
-    norm=np.linalg.norm(v)
-    if norm==0:
-        norm=np.finfo(v.dtype).eps
-    return v/norm
 
 def interp_nd(x, rx, ry):
 
@@ -320,19 +358,6 @@ def send_command(user_input):
     else:
         print("Incorrect command.")
 
-def parsePacket(txt):
-    ID = int.from_bytes(txt[0:1], 'big', signed=False)
-    temp = int.from_bytes(txt[1:2], 'big', signed=True)
-    msmnts = np.zeros((3,16),np.uintc)
-    for i in range(2,50, 3):
-        #msmnts.append(int.from_bytes(txt[i:i+3], 'big', signed=True))
-        detection = int((txt[i] >> 4) & 0x0f)
-        status = int(txt[i] & 0x0f)
-        distance = int.from_bytes(txt[i+1:i+3], 'big', signed=True)
-        msmnts[0,int((i-2)/3)] = detection
-        msmnts[1,int((i-2)/3)] = status
-        msmnts[2,int((i-2)/3)] = distance 
-    return ID, temp, msmnts
 
 def check_sensors(ID, temp, msmnts, normalized_t):
     for sensor in range(len(msmnts[0])):
