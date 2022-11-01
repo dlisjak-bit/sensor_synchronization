@@ -13,6 +13,7 @@ from threading import Thread
 import time, datetime
 import serial
 from serial.serialutil import *
+from queue import Queue
 
 
 # --------------GUIDE----------------------------------------
@@ -79,7 +80,7 @@ def normalize(v):
         norm=np.finfo(v.dtype).eps
     return v/norm
 
-def new_reference():
+def new_robot_reference():
 
     """ Record new reference motion. (Program needs to start by setting one digital output bit on and end by setting it off.
         Warning: end program by moving back to the beginning or set DO off after going back to start"""
@@ -159,8 +160,8 @@ def parsePacket(txt):
 
 def new_sensor_reference():
     timestamp = str(int(time.time()))
-    ogfilename = f"sensor_reference_{timestamp}.csv"
-    with open(ogfilename, "w") as f:
+    sensor_filename = f"sensor_reference_{timestamp}.csv"
+    with open(sensor_filename, "w") as f:
 
         # Write header.
         f.write("t,")
@@ -184,20 +185,58 @@ def new_sensor_reference():
             
             ser.write(b'g')     # go
             txt = ser.readline()    # read line which just confirms that ranging is working
-            print(txt)
+            #print(txt)
 
             samplingState = "waiting for sync low"
             print("Sensor Reference Sampling started")
             for i in range(samplingTime):
                 for j in range(45):
+                    state = con.receive()
+                    do = state.actual_digital_output_bits
 
+                    if state is None:
+                        print("connection lost, breaking")
+                        break
+
+                    if samplingState == "waiting for sync low":
+                        if (do%2)==0:
+                            samplingState = "waiting for sync high"
+                    elif samplingState == "waiting for sync high":
+                        if (do%2)==1:
+                            print("cycle start detected")
+                            samplingState = "collecting data"
+                    if samplingState == "collecting data":
+                        if (do%2)==0:
+                            samplingState = "finished"
+                            break
+                        t_sample_start = normalized_t.copy()
+                        ID, temp, msmnts = parsePacket(ser.read(50))
+                        line = f"{t_sample_start},{str(msmnts)[0][::]},{str(msmnts)[1][::]},{str(msmnts)[2][::]}" #slice
+                        f.write(line)
+
+
+            if samplingState != "finished":
+                print("WARNING: Program timed out before robot cycle was complete.")
+
+    return(sensor_filename)
 
 def read_sensor_reference(file):
     #read sensor reference and return matrix
+    """ Read sensor reference file. """
 
-def read_reference(file):
+    data = []
+    with open(file, 'r') as f:
+        f.readline()    # throw away the header line
+        for l in f:
+            data.append([float(x) for x in l.strip().split(',')])   # read csv
+    data = np.array(data).transpose()                               # transpose matrix
+                                                                    # separate data:
+    return data[0], data[34:50]      # time points array ([time]-[start time]), 12 arrays (q0 do qd5) , array tsf, array do
+    
 
-    """ Read reference file. """
+def read_robot_reference(file):
+
+    """ Read robot reference file. """
 
     data = []
     with open(file, 'r') as f:
@@ -372,11 +411,37 @@ def send_command(user_input):
     else:
         print("Incorrect command.")
 
+def interpolate_sensor_point(t_sample_start, spread=2, subdivisions=10):
+    t_dif = [abs(t_sample_start-point) for point in sensor_tref]
+    idx = t_dif.index(min(t_dif))
 
-def check_sensors(ID, temp, msmnts, normalized_t):
+    #sensor_ref = sensor_ref.transpose()
+
+    idxl = max(0, sensor_tref[idx] - spread)
+    idxh = min(len(sensor_tref)-1, sensor_tref[idx] + spread + 2)
+    didx = idxh-idxl
+
+    samplepts = np.linspace(sensor_tref[idxl], sensor_tref[idxh-1], didx*subdivisions)
+    subdivided = interp_nd(samplepts, sensor_tref[idxl:idxh], sensor_ref[:,idxl:idxh]) #test behaviour!
+
+    t_dif = [abs(t_sample_start-t_point) for t_point in samplepts]
+    idx = t_dif.index(min(t_dif))
+
+    return subdivided[idx], samplepts[idx]
+
+def sensor_error_queue(error_queue, sensor_error):
+    np.delete(error_queue)
+
+def check_sensors(ID, temp, msmnts, t_sample_start, error_queue):
     for sensor in range(len(msmnts[0])):
-        if msmnts[0, sensor] == "Working": #change to whatever returns ok
-            # compare distance to reference distance - must do interpolation again to find right time?
+        if msmnts[0, sensor] != "Working": #change to whatever returns ok
+            print("Error")
+    interp_ref_point, interp_ref_time = interpolate_sensor_point(t_sample_start) # find reference point closest
+    interp_ref_point = interp_ref_point.transpose()
+    sensor_error = [(distance-ref_distance)/ref_distance 
+                    for distance, ref_distance in zip(msmnts[2], interp_ref_point)]
+    error_queue = sensor_error_queue(error_queue, sensor_error)
+
 
 def take_input_thread():
     time.sleep(2)
@@ -396,58 +461,47 @@ def data_processor_thread():
     connect_robot()
 
     if record_reference:
-        reference_file = new_reference()
+        robot_reference_file = new_robot_reference()
+        sensor_reference_file = new_sensor_reference()
         print("Using new reference motion ...")
 
-    tref,ref,pct100,do100 = read_reference(reference_file)
+    tref,ref,pct100,do100 = read_robot_reference(robot_reference_file)
+    global sensor_tref, sensor_ref 
+    sensor_tref, sensor_ref = read_sensor_reference(sensor_reference_file)
+
+    t3 = Thread(target=sensor_thread)
+    t3.start()
 
     data_reader(tref, ref)
     print("Stopped receiving data.")
 
 def sensor_thread():
-    collect_data = True   
+    collect_data = True
+    queue_length = 10  
+    data_queue = np.zeros(queue_length, 17) # time and 16 sensors
     
-    label = "sensor_data"
-    #label = input("label:\t")
-    #timestamp = str(int(time.time()))
-    time = datetime.datetime.now()
-    timestamp = f"{time.year}{time.month}{time.day}{time.hour}{time.minute}{time.second}" #microseconds, tzinfo
-    filename = f"recordings\{timestamp}_{label}.csv"
-    with open(filename, 'w') as f:
-        with serial.Serial() as ser:
-            ser.baudrate = 460800
-            ser.port = NUCLEO_BOARD_PORT
-            ser.parity = PARITY_EVEN
-            ser.stopbits = STOPBITS_ONE
-            ser.open()
+    with serial.Serial() as ser:
+        ser.baudrate = 460800
+        ser.port = NUCLEO_BOARD_PORT
+        ser.parity = PARITY_EVEN
+        ser.stopbits = STOPBITS_ONE
+        ser.open()
 
-            ser.write(b'gs')     # start and stop ranging (bugfix)
-            time.sleep(2)
-            while ser.inWaiting(): ser.read()   # purge buffer
-            
-            ser.write(b'g')     # go
-            txt = ser.readline()    # read line which just confirms that ranging is working
-            print(txt)
-            
-            while collect_data:   # sampling time
-                t0 = datetime.datetime.now()
-                
-                for j in range(45):             # at 45 FPS
-                    txts = []
-                    for k in range(1):          # for each of the eight sensors
-                        txt = ser.read(50)
-                    print(parsePacket(txt))
-                    check_sensors(parsePacket(txt), normalized_t)
-                    #f.write(f"{i}, {j};\n")
-                        
-                t1 = datetime.datetime.now()
-                
-                print("dt: ", t1-t0)
-            ser.write(b's')     # stop
-            print(txt)
-            for t in txts:
-                print(parsePacket(t))
-            #f.write(txt.decode('utf-8'))
+        ser.write(b'gs')     # start and stop ranging (bugfix)
+        time.sleep(2)
+        while ser.inWaiting(): ser.read()   # purge buffer
+        
+        ser.write(b'g')     # go
+        txt = ser.readline()    # read line which just confirms that ranging is working
+        #print(txt)
+        
+        while collect_data:   # sampling time
+            for j in range(45):             # at 45 FPS
+                t_sample_start = normalized_t.copy()
+                for k in range(1):          # for each of the eight sensors
+                    txt = ser.read(50)
+                check_sensors(parsePacket(txt), t_sample_start, data_queue)
+        ser.write(b's')     # stop
 
 def main():
     
@@ -460,12 +514,10 @@ def main():
     t1 = Thread(target=data_processor_thread)
     if not show_time:
         t2 = Thread(target=take_input_thread)
-    t3 = Thread(target=sensor_thread)
 
     t1.start()
     if not show_time:
         t2.start()
-    t3.start()
 
 
 if __name__ == "__main__":
