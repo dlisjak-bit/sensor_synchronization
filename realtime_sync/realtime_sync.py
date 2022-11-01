@@ -513,8 +513,8 @@ def interpolate_sensor_point(t_sample_start, spread=2, subdivisions=10):
 
     #sensor_ref = sensor_ref.transpose()
 
-    idxl = max(0, sensor_tref[idx] - spread)
-    idxh = min(len(sensor_tref)-1, sensor_tref[idx] + spread + 2)
+    idxl = max(0, idx - spread)
+    idxh = min(len(sensor_tref)-1, idx + spread)
     didx = idxh-idxl
 
     samplepts = np.linspace(sensor_tref[idxl], sensor_tref[idxh-1], didx*subdivisions)
