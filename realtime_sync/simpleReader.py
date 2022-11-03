@@ -51,7 +51,7 @@ if __name__ == "__main__":
                 
                 for j in range(45):             # at 45 FPS
                     txts = []
-                    for k in range(1):          # for each of the eight sensors
+                    for k in range(8):          # for each of the eight sensors
                         txts.append(ser.read(50))
                         #ser.read(50)
                     #f.write(f"{i}, {j};\n")

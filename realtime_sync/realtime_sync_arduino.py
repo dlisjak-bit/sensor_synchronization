@@ -18,7 +18,7 @@ from queue import Queue
 
 # --------------GUIDE----------------------------------------
 # before running test_2.urp, run initialize variables.py
-# run the script as python3 realtime_sync.py <-t> <-r>
+# run the script as python3 realtime_sync_arduino.py <-t> <-r>
 # optional flags: 
 # -t: show calculated reference time in commandline (does not allow later user input)
 # -r: record a reference loop before starting data collection
@@ -43,7 +43,9 @@ ROBOT_HOST = '192.168.65.244'   # actual robot
 ROBOT_HOST = '192.168.56.101'   # virtual robot
 ROBOT_PORT = 30004
 
-NUCLEO_BOARD_PORT = "COM7"
+ARDUINO_BOARD_PORT_ARRAY = ["/dev/tty.usbserial-14110", "/dev/tty.usbserial-14140"]
+ARDUINO_BAUDRATE = 115200
+num_arduinos = 2
 
 argumentList = sys.argv[1:]
 
@@ -57,11 +59,11 @@ def main():
     record_reference, show_time = argparse(record_reference, show_time)
     
     t1 = Thread(target=data_processor_thread)
-    if not show_time:
+    if show_time:
         t2 = Thread(target=take_input_thread)
 
     t1.start()
-    if not show_time:
+    if show_time:
         t2.start()
 
 def data_processor_thread():
@@ -70,21 +72,26 @@ def data_processor_thread():
     global record_reference
     global show_time
 
+    # Start robot
     connect_robot()
-
     if record_reference:
         robot_reference_file = new_robot_reference()
-        sensor_reference_file = new_sensor_reference()
         print("Using new reference motion ...")
 
     tref,ref,pct100,do100 = read_robot_reference(robot_reference_file)
-    global sensor_tref, sensor_ref 
-    sensor_tref, sensor_ref = read_sensor_reference(sensor_reference_file)
+    robot_thread = Thread(target=robot_input_reader, args=[tref, ref])
+    robot_thread.start()
 
+    # Start sensors
+    if record_reference:
+        sensor_reference_file = new_sensor_reference()
+        print("Recorded all sensor reference files.")
+
+    global sensor_ref_array
+    sensor_ref_array = read_sensor_reference(sensor_reference_file)
     t3 = Thread(target=sensor_thread)
     t3.start()
 
-    robot_input_reader(tref, ref)
     print("Stopped receiving data.")
 
 def argparse(record_reference, show_time):
@@ -376,66 +383,59 @@ def send_command(user_input):
 
 # Sensors
 def sensor_thread():
+    global collect_data
     collect_data = True
-    queue_length = 10  
-    data_queue = np.zeros(queue_length, 16) # time and 16 sensors
-    
-    with serial.Serial() as ser:
-        ser.baudrate = 460800
-        ser.port = NUCLEO_BOARD_PORT
-        ser.parity = PARITY_EVEN
-        ser.stopbits = STOPBITS_ONE
-        ser.open()
 
-        ser.write(b'gs')     # start and stop ranging (bugfix)
-        time.sleep(2)
-        while ser.inWaiting(): ser.read()   # purge buffer
-        
-        ser.write(b'g')     # go
-        txt = ser.readline()    # read line which just confirms that ranging is working
-        #print(txt)
-        
-        while collect_data:   # sampling time
-            for j in range(45):             # at 45 FPS
-                t_sample_start = normalized_t.copy()
-                for k in range(1):          # for each of the eight sensors
-                    txt = ser.read(50)
-                check_sensors(parsePacket(txt), t_sample_start, data_queue)
-        ser.write(b's')     # stop
+    # start as many threads as there are arduino boards, all checking errors independently
+    for i in range(num_arduinos):
+        thread = Thread(target=singleboard_datareader, args=[ARDUINO_BOARD_PORT_ARRAY[i], i])
+        thread.start()
 
 def new_sensor_reference():
-    timestamp = str(int(time.time()))
-    sensor_filename = f"sensor_reference_{timestamp}.csv"
-    with open(sensor_filename, "w") as f:
+    array = []
+    for i in range(num_arduinos):
+        array.append(reference_sensor_reader(ARDUINO_BOARD_PORT_ARRAY[i]))
+    sensor_filename = "test_sensors"
+    for i in range(2):
+        with open(f"{sensor_filename}{i}.csv", 'w') as f:
+            f.write(f"time,distance0,distance1\n")
+            for line in array[i]:
+                f.write(line)
+    return(sensor_filename)
 
-        # Write header.
-        f.write("t,")
-        for i in range(16):
-            f.write(f"detection{i},")
-        for i in range(16):
-            f.write(f"status{i},")
-        for i in range(15):
-            f.write(f"distance{i},")
-        f.write("distance15\n")
-        with serial.Serial() as ser:
-            ser.baudrate = 460800
-            ser.port = NUCLEO_BOARD_PORT
-            ser.parity = PARITY_EVEN
-            ser.stopbits = STOPBITS_ONE
+def read_sensor_reference(file):
+    #read sensor reference and return matrix
+    """ Read sensor reference file. """
+
+    array = []
+    for i in range(num_arduinos):
+        data = []
+        file_i = f"{file}{i}.csv"
+        with open(file_i, 'r') as f:
+            f.readline()    # throw away the header line
+            for l in f:
+                data.append([float(x) for x in l.strip().split(',')])   # read csv
+        data = np.array(data).transpose()                               # transpose matrix
+        array.append(data)
+                                                                    # separate data:
+    return array      # array[board][data]
+   
+def reference_sensor_reader(arduino_board_port):
+    array = []
+    with serial.Serial() as ser:
+            ser.baudrate = ARDUINO_BAUDRATE
+            ser.port = arduino_board_port
+            #ser.parity = PARITY_EVEN
+            #ser.stopbits = STOPBITS_ONE
             ser.open()
-
-            ser.write(b'gs')     # start and stop ranging (bugfix)
-            time.sleep(2)
-            while ser.inWaiting(): ser.read()   # purge buffer
-            
-            ser.write(b'g')     # go
             txt = ser.readline()    # read line which just confirms that ranging is working
-            #print(txt)
-
-            samplingState = "waiting for sync low"
-            print("Sensor Reference Sampling started")
+            print(txt)
+            txt = ser.readline()    # read line which just confirms that ranging is working
+            print(txt)
+            samplingState = "waiting for sync low"              
+            print(f"Sensor Reference Sampling started for board {arduino_board_port}")
             for i in range(samplingTime):
-                for j in range(45):
+                for j in range(50):
                     state = con.receive()
                     do = state.actual_digital_output_bits
 
@@ -454,62 +454,69 @@ def new_sensor_reference():
                         if (do%2)==0:
                             samplingState = "finished"
                             break
-                        t_sample_start = normalized_t.copy()
-                        ID, temp, msmnts = parsePacket(ser.read(50))
-                        line = f"{t_sample_start},{str(msmnts)[0][::]},{str(msmnts)[1][::]},{str(msmnts)[2][::]}" #slice
-                        f.write(line)
+                        t_sample = normalized_t.copy()
+                        ser.write(str.encode("\n"))
+                        txt_array = ser.readline().decode("utf-8").strip()
+                        txt_array = txt_array.split(",")
+                        line = f"{t_sample},{txt_array[1]},{txt_array[4]}\n"
+                        array.append(line)
+                        print(line)
 
+                        #PROBLEM: prehitro pobiranje podatkov ga ubije
+                        time.sleep(0.02)
 
+                print(f"Time elapsed: {i}s")
+                if samplingState == "finished":
+                    print(f"cycle complete - reference for board {arduino_board_port} recorded")
+                    break
             if samplingState != "finished":
-                print("WARNING: Program timed out before robot cycle was complete.")
+                    print("WARNING: Program timed out before robot cycle was complete.")
+    return array
 
-    return(sensor_filename)
+def singleboard_datareader(arduino_board_port, arduino_board_number):
+    queue_length = 5  
+    error_queue = np.zeros((2, queue_length)) # 2 sensors
 
-def read_sensor_reference(file):
-    #read sensor reference and return matrix
-    """ Read sensor reference file. """
+    with serial.Serial() as ser:
+        ser.baudrate = ARDUINO_BAUDRATE
+        ser.port = arduino_board_port
+        ser.open()
 
-    data = []
-    with open(file, 'r') as f:
-        f.readline()    # throw away the header line
-        for l in f:
-            data.append([float(x) for x in l.strip().split(',')])   # read csv
-    data = np.array(data).transpose()                               # transpose matrix
-                                                                    # separate data:
-    return data[0], data[34:50]      # time points array ([time]-[start time]), 12 arrays (q0 do qd5) , array tsf, array do
-   
-def parsePacket(txt):
-    ID = int.from_bytes(txt[0:1], 'big', signed=False)
-    temp = int.from_bytes(txt[1:2], 'big', signed=True)
-    msmnts = np.zeros((3,16),np.uintc)
-    for i in range(2,50, 3):
-        #msmnts.append(int.from_bytes(txt[i:i+3], 'big', signed=True))
-        detection = int((txt[i] >> 4) & 0x0f)
-        status = int(txt[i] & 0x0f)
-        distance = int.from_bytes(txt[i+1:i+3], 'big', signed=True)
-        msmnts[0,int((i-2)/3)] = detection
-        msmnts[1,int((i-2)/3)] = status
-        msmnts[2,int((i-2)/3)] = distance 
-    return ID, temp, msmnts
- 
-def sensor_error_queue(error_queue, sensor_error):
-    error_queue = np.delete(error_queue, 0, 0)
-    error_queue = np.append(error_queue, sensor_error, axis = 0)
-    for i in range(16):
-        err = error_queue[:, i:i+1]
-        if all(x > 0.2 for x in err):
-            print(f"Warning: something is near sensor {i}")
+        txt = ser.readline()    # read line which just confirms that ranging is working
+        txt = ser.readline()    # read line which just confirms that ranging is working
+        
+        while collect_data:   # sampling time
+            for j in range(50):
+                for k in range(1):
+                    t_sample_start = normalized_t.copy()
+                    ser.write(str.encode("\n"))
+                    txt_array = ser.readline().decode("utf-8").strip()
+                    txt_array = txt_array.split(",")
+                    point = [float(i) for i in txt_array]
+                    error_queue = check_sensors(point, t_sample_start, error_queue, arduino_board_number)
 
-def check_sensors(ID, temp, msmnts, t_sample_start, error_queue):
-    for sensor in range(len(msmnts[0])):
-        if msmnts[0, sensor] != "Working": #change to whatever returns ok
-            print("Error")
-    interp_ref_point, interp_ref_time = interpolate_sensor_point(t_sample_start) # find reference point closest
-    sensor_error = [(distance-ref_distance)/ref_distance 
-                    for distance, ref_distance in zip(msmnts[2], interp_ref_point)]
-    error_queue = sensor_error_queue(error_queue, sensor_error)
+def sensor_error_queue(error_queue, sensor_error_array, arduino_board_number):
+    sensor_error_array = np.transpose(sensor_error_array)
+    error_queue = np.delete(error_queue, 0, 1)
+    #Append error
+    error_queue = np.hstack((error_queue, sensor_error_array))
 
-def interpolate_sensor_point(t_sample_start, spread=2, subdivisions=10):
+    for i in range(2):
+        err = error_queue[i]
+        if min(err) > 0.2:
+            print(f"Warning: something is wrong near sensor {i}, board {arduino_board_number}")
+    return error_queue
+
+def check_sensors(point, t_sample_start, error_queue, arduino_board_number):
+    interp_ref_point, interp_ref_time = interpolate_sensor_point(t_sample_start, arduino_board_number) # find reference point closest
+    sensor_error_array = np.array([(abs(distance - ref_distance)/ref_distance) for distance, ref_distance in zip(point, interp_ref_point)]).transpose()
+    error_queue = sensor_error_queue(error_queue, sensor_error_array, arduino_board_number)
+
+def interpolate_sensor_point(t_sample_start, arduino_board_number, spread=2, subdivisions=10):
+    sensor_data = sensor_ref_array[arduino_board_number]
+    sensor_tref = sensor_data[0]
+    sensor_ref = sensor_data[1:3]
+
     t_dif = [abs(t_sample_start-point) for point in sensor_tref]
     idx = t_dif.index(min(t_dif))
 
