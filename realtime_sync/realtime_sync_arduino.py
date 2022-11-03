@@ -496,6 +496,8 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                     error_queue = check_sensors(point, t_sample_start, error_queue, arduino_board_number)
 
 def sensor_error_queue(error_queue, sensor_error_array, arduino_board_number):
+    print(error_queue.shape)
+    print(error_queue)
     sensor_error_array = np.transpose(sensor_error_array)
     error_queue = np.delete(error_queue, 0, 1)
     #Append error
@@ -511,6 +513,7 @@ def check_sensors(point, t_sample_start, error_queue, arduino_board_number):
     interp_ref_point, interp_ref_time = interpolate_sensor_point(t_sample_start, arduino_board_number) # find reference point closest
     sensor_error_array = np.array([(abs(distance - ref_distance)/ref_distance) for distance, ref_distance in zip(point, interp_ref_point)]).transpose()
     error_queue = sensor_error_queue(error_queue, sensor_error_array, arduino_board_number)
+    return error_queue
 
 def interpolate_sensor_point(t_sample_start, arduino_board_number, spread=2, subdivisions=10):
     sensor_data = sensor_ref_array[arduino_board_number]
