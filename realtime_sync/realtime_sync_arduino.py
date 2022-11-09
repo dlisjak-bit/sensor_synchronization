@@ -27,9 +27,6 @@ from queue import Queue
 # speed <value (1-100)>: percentage speed slider to be set
 # exit: terminates program, robot continues operation
 
-#TO DO
-#fix interpolation and points
-#arduino sensor: send newline, readline
 
 # system variables
 updateFrequency = 125
@@ -492,7 +489,7 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                     ser.write(str.encode("\n"))
                     txt_array = ser.readline().decode("utf-8").strip()
                     txt_array = txt_array.split(",")
-                    point = np.transpose([float(i) for i in txt_array])
+                    point = np.transpose([float(txt_array[1]), float(txt_array[4])])
                     error_queue = check_sensors(point, t_sample_start, error_queue, arduino_board_number)
 
 def sensor_error_queue(error_queue, sensor_error_array, arduino_board_number):
@@ -510,6 +507,7 @@ def sensor_error_queue(error_queue, sensor_error_array, arduino_board_number):
     return error_queue
 
 def check_sensors(point, t_sample_start, error_queue, arduino_board_number):
+    #CHECK POINT DIMENSIONS - NEED ONLY DISTANCE
     interp_ref_point, interp_ref_time = interpolate_sensor_point(t_sample_start, arduino_board_number) # find reference point closest
     sensor_error_array = np.array([(abs(distance - ref_distance)/ref_distance) for distance, ref_distance in zip(point, interp_ref_point)]).transpose()
     error_queue = sensor_error_queue(error_queue, sensor_error_array, arduino_board_number)
