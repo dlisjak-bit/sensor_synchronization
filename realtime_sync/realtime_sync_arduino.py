@@ -492,7 +492,7 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                     ser.write(str.encode("\n"))
                     txt_array = ser.readline().decode("utf-8").strip()
                     txt_array = txt_array.split(",")
-                    point = [float(i) for i in txt_array]
+                    point = np.transpose([float(i) for i in txt_array])
                     error_queue = check_sensors(point, t_sample_start, error_queue, arduino_board_number)
 
 def sensor_error_queue(error_queue, sensor_error_array, arduino_board_number):
