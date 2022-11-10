@@ -76,8 +76,10 @@ def main():
     sample_point = np.transpose(np.array([250,250]))
     t_sample_start = 4.98
     interp_ref_point, interp_ref_time = interpolate_sensor_point(t_sample_start, 0)
-    print(interpolate_sensor_point(t_sample_start, 0,))
-    sensor_error_array = np.array([(abs(distance - ref_distance)/ref_distance) for distance, ref_distance in zip(sample_point, interp_ref_point)]).transpose()
+    print(interp_ref_point)
+    sensor_error_array = [(abs(distance - ref_distance)/ref_distance) for distance, ref_distance in zip(sample_point, interp_ref_point)]
+    print(f"sensor error array{sensor_error_array}")
+    #sensor_error_array = [np.array([1, 1])]
     error_queue = sensor_error_queue(error_queue, sensor_error_array, 0)
     print(error_queue)
 

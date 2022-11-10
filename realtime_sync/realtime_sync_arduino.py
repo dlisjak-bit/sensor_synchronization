@@ -37,12 +37,12 @@ thread_running = True
 robot_speed = 100
 
 ROBOT_HOST = '192.168.65.244'   # actual robot
-ROBOT_HOST = '192.168.56.101'   # virtual robot
+#ROBOT_HOST = '192.168.56.101'   # virtual robot
 ROBOT_PORT = 30004
 
-ARDUINO_BOARD_PORT_ARRAY = ["/dev/tty.usbserial-14110", "/dev/tty.usbserial-14140"]
+ARDUINO_BOARD_PORT_ARRAY = ["/dev/tty.usbserial-1423110", "/dev/tty.usbserial-1423120", "/dev/tty.usbserial-1423130", "/dev/tty.usbserial-1423140"]
 ARDUINO_BAUDRATE = 115200
-num_arduinos = 2
+num_arduinos = 4
 
 argumentList = sys.argv[1:]
 
@@ -81,13 +81,19 @@ def data_processor_thread():
 
     # Start sensors
     if record_reference:
+        send_command("speed 20")
         sensor_reference_file = new_sensor_reference()
+        send_command("speed 100")
         print("Recorded all sensor reference files.")
+
 
     global sensor_ref_array
     sensor_ref_array = read_sensor_reference(sensor_reference_file)
     t3 = Thread(target=sensor_thread)
     t3.start()
+
+    t2 = Thread(target=take_input_thread)
+    t2.start()
 
     print("Stopped receiving data.")
 
@@ -393,7 +399,7 @@ def new_sensor_reference():
     for i in range(num_arduinos):
         array.append(reference_sensor_reader(ARDUINO_BOARD_PORT_ARRAY[i]))
     sensor_filename = "test_sensors"
-    for i in range(2):
+    for i in range(num_arduinos):
         with open(f"{sensor_filename}{i}.csv", 'w') as f:
             f.write(f"time,distance0,distance1\n")
             for line in array[i]:
@@ -455,12 +461,18 @@ def reference_sensor_reader(arduino_board_port):
                         ser.write(str.encode("\n"))
                         txt_array = ser.readline().decode("utf-8").strip()
                         txt_array = txt_array.split(",")
-                        line = f"{t_sample},{txt_array[1]},{txt_array[4]}\n"
+                        distance1 = txt_array[1]
+                        distance2 = txt_array[4]
+                        if txt_array[2] in ['2', '4', '7']:
+                            distance1 = 2000
+                        if txt_array[5] in ['2', '4', '7']:
+                            distance2 = 2000
+                        line = f"{t_sample},{distance1},{distance2}\n"
                         array.append(line)
                         print(line)
 
                         #PROBLEM: prehitro pobiranje podatkov ga ubije
-                        time.sleep(0.02)
+                        time.sleep(0.002)
 
                 print(f"Time elapsed: {i}s")
                 if samplingState == "finished":
@@ -471,7 +483,7 @@ def reference_sensor_reader(arduino_board_port):
     return array
 
 def singleboard_datareader(arduino_board_port, arduino_board_number):
-    queue_length = 5  
+    queue_length = 10  
     error_queue = np.zeros((2, queue_length)) # 2 sensors
 
     with serial.Serial() as ser:
@@ -489,12 +501,18 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                     ser.write(str.encode("\n"))
                     txt_array = ser.readline().decode("utf-8").strip()
                     txt_array = txt_array.split(",")
-                    point = np.transpose([float(txt_array[1]), float(txt_array[4])])
+                    distance1 = txt_array[1]
+                    distance2 = txt_array[4]
+                    if txt_array[2] in ['2', '4', '7']:
+                        distance1 = 2000
+                    if txt_array[5] in ['2', '4', '7']:
+                        distance2 = 2000
+                    point = np.transpose([float(distance1), float(distance2)])
                     error_queue = check_sensors(point, t_sample_start, error_queue, arduino_board_number)
 
-def sensor_error_queue(error_queue, sensor_error_array, arduino_board_number):
-    print(error_queue.shape)
-    print(error_queue)
+def sensor_error_queue(error_queue, sensor_error_array, arduino_board_number, point, interp_ref_point):
+    #print(error_queue.shape)
+    #print(error_queue)
     sensor_error_array = np.transpose(sensor_error_array)
     error_queue = np.delete(error_queue, 0, 1)
     #Append error
@@ -502,15 +520,21 @@ def sensor_error_queue(error_queue, sensor_error_array, arduino_board_number):
 
     for i in range(2):
         err = error_queue[i]
-        if min(err) > 0.2:
+        if min(err) > 0.3:
             print(f"Warning: something is wrong near sensor {i}, board {arduino_board_number}")
+            print(err)
+            print(f"point{point} refpoint {interp_ref_point}")
+            #send_command("speed 20")
     return error_queue
 
 def check_sensors(point, t_sample_start, error_queue, arduino_board_number):
     #CHECK POINT DIMENSIONS - NEED ONLY DISTANCE
     interp_ref_point, interp_ref_time = interpolate_sensor_point(t_sample_start, arduino_board_number) # find reference point closest
-    sensor_error_array = np.array([(abs(distance - ref_distance)/ref_distance) for distance, ref_distance in zip(point, interp_ref_point)]).transpose()
-    error_queue = sensor_error_queue(error_queue, sensor_error_array, arduino_board_number)
+    if all(ref_distance > 100 for ref_distance in interp_ref_point):
+        sensor_error_array = np.transpose(np.array([(abs(distance - ref_distance)/ref_distance) for distance, ref_distance in zip(point, interp_ref_point)]))
+    else:
+        sensor_error_array = [np.array([0.0, 0.0])]
+    error_queue = sensor_error_queue(error_queue, sensor_error_array, arduino_board_number, point, interp_ref_point)
     return error_queue
 
 def interpolate_sensor_point(t_sample_start, arduino_board_number, spread=2, subdivisions=10):

@@ -17,7 +17,7 @@ ROBOT_HOST = '192.168.65.244'   # actual robot
 ROBOT_HOST = '192.168.56.101'   # virtual robot
 ROBOT_PORT = 30004
 
-ARDUINO_BOARD_PORT_ARRAY = ["/dev/tty.usbserial-14110", "/dev/tty.usbserial-14140"]
+ARDUINO_BOARD_PORT_ARRAY = ["/dev/tty.usbserial-1423110"]
 
 def new_sensor_reference(array0, array1):
     timestamp = str(int(time.time()))
@@ -58,7 +58,13 @@ def sensor_reader(ARDUINO_BOARD_PORT):
                         txt_array = ser.readline().decode("utf-8").strip()
                         print(txt_array)
                         txt_array = txt_array.split(",")
-                        line = f"{txt_array[1]},{txt_array[4]}\n"
+                        distance1 = txt_array[1]
+                        distance2 = txt_array[4]
+                        if txt_array[2] in ['2', '4', '7']:
+                            distance1 = 2000
+                        if txt_array[5] in ['2', '4', '7']:
+                            distance2 = 2000
+                        line = f"{distance1},{distance2}\n"
                         array.append(line)
     return array
             
@@ -66,9 +72,9 @@ def sensor_reader(ARDUINO_BOARD_PORT):
 def sensor_divider():
     array = []
     array.append(sensor_reader(ARDUINO_BOARD_PORT_ARRAY[0]))
-    array.append(sensor_reader(ARDUINO_BOARD_PORT_ARRAY[1]))
+    #array.append(sensor_reader(ARDUINO_BOARD_PORT_ARRAY[1]))
     sensor_filename = "test_sensors"
-    for i in range(2):
+    for i in range(1):
         with open(f"{sensor_filename}{i}.csv", 'w') as f:
             f.write(f"distance0,distance1\n")
             for line in array[i]:
