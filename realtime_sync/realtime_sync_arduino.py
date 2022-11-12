@@ -43,8 +43,13 @@ ROBOT_PORT = 30004
 ARDUINO_BOARD_PORT_ARRAY = ["/dev/tty.usbserial-1423110", "/dev/tty.usbserial-1423120", "/dev/tty.usbserial-1423130", "/dev/tty.usbserial-1423140"]
 ARDUINO_BAUDRATE = 115200
 num_arduinos = 4
+NUM_REF_CYCLES = 2
 
 argumentList = sys.argv[1:]
+
+# Plotting logs
+error_display = np.array([])
+sensor_measurement_display = np.array([])
 
 # Divide threads and start.
 def main():
@@ -395,14 +400,25 @@ def sensor_thread():
         thread.start()
 
 def new_sensor_reference():
-    array = []
+    global sensor_ref_array_to_write 
+    sensor_ref_array_to_write = []
     for i in range(num_arduinos):
-        array.append(reference_sensor_reader(ARDUINO_BOARD_PORT_ARRAY[i]))
+        sensor_ref_array_to_write.append([])
+    sensor_threads = []
+    for i in range(num_arduinos):
+        t = Thread(target=reference_sensor_reader, args=[ARDUINO_BOARD_PORT_ARRAY[i], i])
+        sensor_threads.append(t)
+    for t in sensor_threads:
+        t.start()
+    for t in sensor_threads:
+        t.join()
+
+
     sensor_filename = "test_sensors"
     for i in range(num_arduinos):
         with open(f"{sensor_filename}{i}.csv", 'w') as f:
             f.write(f"time,distance0,distance1\n")
-            for line in array[i]:
+            for line in sensor_ref_array_to_write[i]:
                 f.write(line)
     return(sensor_filename)
 
@@ -423,7 +439,8 @@ def read_sensor_reference(file):
                                                                     # separate data:
     return array      # array[board][data]
    
-def reference_sensor_reader(arduino_board_port):
+def reference_sensor_reader(arduino_board_port, arduino_board_index):
+    global sensor_ref_array_to_write
     array = []
     with serial.Serial() as ser:
             ser.baudrate = ARDUINO_BAUDRATE
@@ -437,6 +454,7 @@ def reference_sensor_reader(arduino_board_port):
             print(txt)
             samplingState = "waiting for sync low"              
             print(f"Sensor Reference Sampling started for board {arduino_board_port}")
+            num_cycles_done = 0
             for i in range(samplingTime):
                 for j in range(50):
                     state = con.receive()
@@ -455,8 +473,11 @@ def reference_sensor_reader(arduino_board_port):
                             samplingState = "collecting data"
                     if samplingState == "collecting data":
                         if (do%2)==0:
-                            samplingState = "finished"
-                            break
+                            if num_cycles_done < NUM_REF_CYCLES - 1:
+                                num_cycles_done += 1
+                            else:
+                                samplingState = "finished"
+                                break
                         t_sample = normalized_t.copy()
                         ser.write(str.encode("\n"))
                         txt_array = ser.readline().decode("utf-8").strip()
@@ -480,7 +501,8 @@ def reference_sensor_reader(arduino_board_port):
                     break
             if samplingState != "finished":
                     print("WARNING: Program timed out before robot cycle was complete.")
-    return array
+        # Sort array by time
+    sensor_ref_array_to_write[arduino_board_index] = array
 
 def singleboard_datareader(arduino_board_port, arduino_board_number):
     queue_length = 10  
@@ -504,9 +526,11 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                     distance1 = txt_array[1]
                     distance2 = txt_array[4]
                     if txt_array[2] in ['2', '4', '7']:
-                        distance1 = 2000
+                        if distance1 > 1300:
+                            distance1 = 2000
                     if txt_array[5] in ['2', '4', '7']:
-                        distance2 = 2000
+                        if distance2 > 1300:
+                            distance2 = 2000
                     point = np.transpose([float(distance1), float(distance2)])
                     error_queue = check_sensors(point, t_sample_start, error_queue, arduino_board_number)
 
@@ -558,6 +582,9 @@ def interpolate_sensor_point(t_sample_start, arduino_board_number, spread=2, sub
     idx = t_dif.index(min(t_dif))
 
     return subdivided[:, idx:idx+1], samplepts[idx]
+
+# Output graphs and text
+
 
 if __name__ == "__main__":
      main()
