@@ -14,6 +14,8 @@ import time, datetime
 import serial
 from serial.serialutil import *
 from queue import Queue
+from rich.console import Console
+from rich.table import Table
 
 
 # --------------GUIDE----------------------------------------
@@ -43,9 +45,17 @@ ROBOT_PORT = 30004
 ARDUINO_BOARD_PORT_ARRAY = ["/dev/tty.usbserial-1423110", "/dev/tty.usbserial-1423120", "/dev/tty.usbserial-1423130", "/dev/tty.usbserial-1423140"]
 ARDUINO_BAUDRATE = 115200
 num_arduinos = 4
-NUM_REF_CYCLES = 2
+NUM_REF_CYCLES = 1
 
 argumentList = sys.argv[1:]
+
+# Create table element for all threads 
+# (Robot), num_arduinos * (arduino_board), (input?)
+robot_output = ["",""]
+arduino_output_list = []
+for i in range(num_arduinos):
+    arduino_output_list.append([[[""], [""]],[[""], [""]]])
+
 
 # Plotting logs
 error_display = np.array([])
@@ -60,6 +70,11 @@ def main():
     show_time = False
     record_reference, show_time = argparse(record_reference, show_time)
     
+    # Start output thread
+    t0 = Thread(target=output_thread)
+    t0.start()
+
+    # Start data processors and input thread
     t1 = Thread(target=data_processor_thread)
     if show_time:
         t2 = Thread(target=take_input_thread)
@@ -238,6 +253,8 @@ def new_robot_reference():
     """ Record new reference motion. (Program needs to start by setting one digital output bit on and end by setting it off.
         Warning: end program by moving back to the beginning or set DO off after going back to start"""
 
+    global robot_output
+
     ta = []
     qa = []
     qda = []
@@ -251,6 +268,7 @@ def new_robot_reference():
         f.write("t,q0,q1,q2,q3,q4,q5,qd0,qd1,qd2,qd3,qd4,qd5,ss,tsf,do\n") # write header row
 
         samplingState = "waiting for sync low"
+        robot_output[0] = samplingState
         print("Reference Sampling started")
         for i in range(samplingTime):
             for j in range(updateFrequency):
@@ -271,10 +289,12 @@ def new_robot_reference():
                 if samplingState == "waiting for sync low":
                     if (do%2)==0:
                         samplingState = "waiting for sync high"
+                        robot_output[0] = samplingState
                 elif samplingState == "waiting for sync high":
                     if (do%2)==1:
                         print("cycle start detected")
                         samplingState = "collecting data"
+                        robot_output[0] = samplingState
                 if samplingState == "collecting data":
                     if (do%2)==0:
                         samplingState = "finished"
@@ -286,7 +306,8 @@ def new_robot_reference():
                     tsfa.append(tsf)
                     doa.append(do)
                     data = f"{t},{str(q)[1:-1]},{str(qd)[1:-1]},{ss},{tsf},{do}"
-                    f.write(data+"\n")        
+                    f.write(data+"\n")       
+                    robot_output[0] = samplingState 
             print(f"Recorded {i+1} of {samplingTime} s")
             if samplingState == "finished":
                 print("cycle complete - reference motion recorded")
@@ -315,6 +336,8 @@ def robot_input_reader(tref, ref):
     """ Continuously read data from robot and find reference time for each point """
     global normalized_t
     global keep_running
+    global robot_output
+
     keep_running = True
     print("Receiving data from robot.")
     while keep_running:
@@ -340,14 +363,18 @@ def robot_input_reader(tref, ref):
             datapt = np.array(datapt).transpose()
             datapt = datapt.reshape(12,1)
             normalized_t = get_normalized_t(ref, tref, datapt, method)
+            robot_output[0] = "Monitoring time"
+            robot_output[1] = f"{normalized_t} s"
             if show_time:
                 print(normalized_t, end="\r")
 
     con.send_pause()
     con.disconnect()
 
-# User input
+# User input and terminal output
 def take_input_thread():
+    global user_input
+    user_input = ""
     time.sleep(2)
     global keep_running
     keep_running = True
@@ -389,6 +416,27 @@ def send_command(user_input):
     else:
         print("Incorrect command.")
 
+def output_thread():
+    global user_input
+    user_input = ""
+    while True:
+        table = Table(title = "Monitoring output")
+        table.add_column("Source")
+        table.add_column("Board no.")
+        table.add_column("Status")
+        table.add_column("Data")
+
+        table.add_row("Last command", user_input)
+        table.add_row("Robot", "", robot_output[0], robot_output[1])
+        for idx, arduino_board in enumerate(arduino_output_list):
+            for sensor_idx, sensor in enumerate(arduino_board):
+                table.add_row(f"Sensor{sensor_idx}", f"{idx}", f"{sensor[0]}", f"{sensor[1]}")
+
+        console = Console()
+        console.print(table, end="\r")
+        time.sleep(0.2)
+        
+        
 # Sensors
 def sensor_thread():
     global collect_data
@@ -441,6 +489,7 @@ def read_sensor_reference(file):
    
 def reference_sensor_reader(arduino_board_port, arduino_board_index):
     global sensor_ref_array_to_write
+    global arduino_output_list
     array = []
     with serial.Serial() as ser:
             ser.baudrate = ARDUINO_BAUDRATE
@@ -452,7 +501,10 @@ def reference_sensor_reader(arduino_board_port, arduino_board_index):
             print(txt)
             txt = ser.readline()    # read line which just confirms that ranging is working
             print(txt)
-            samplingState = "waiting for sync low"              
+            samplingState = "waiting for sync low"   
+            status = "waiting for sync low" 
+            arduino_output_list[arduino_board_index][0][0] = status   
+            arduino_output_list[arduino_board_index][1][0] = status        
             print(f"Sensor Reference Sampling started for board {arduino_board_port}")
             num_cycles_done = 0
             for i in range(samplingTime):
@@ -461,16 +513,25 @@ def reference_sensor_reader(arduino_board_port, arduino_board_index):
                     do = state.actual_digital_output_bits
 
                     if state is None:
-                        print("connection lost, breaking")
+                        #print("connection lost, breaking")
+                        status = "connection lost, breaking"
+                        arduino_output_list[arduino_board_index][0][0] = status   
+                        arduino_output_list[arduino_board_index][1][0] = status
                         break
 
                     if samplingState == "waiting for sync low":
                         if (do%2)==0:
                             samplingState = "waiting for sync high"
+                            status = samplingState
+                            arduino_output_list[arduino_board_index][0][0] = status   
+                            arduino_output_list[arduino_board_index][1][0] = status
                     elif samplingState == "waiting for sync high":
                         if (do%2)==1:
-                            print("cycle start detected")
+                            #print("cycle start detected")
                             samplingState = "collecting data"
+                            status = samplingState
+                            arduino_output_list[arduino_board_index][0][0] = status   
+                            arduino_output_list[arduino_board_index][1][0] = status
                     if samplingState == "collecting data":
                         if (do%2)==0:
                             if num_cycles_done < NUM_REF_CYCLES - 1:
@@ -490,12 +551,16 @@ def reference_sensor_reader(arduino_board_port, arduino_board_index):
                             distance2 = 2000
                         line = f"{t_sample},{distance1},{distance2}\n"
                         array.append(line)
-                        print(line)
-
+                        status = samplingState
+                        arduino_output_list[arduino_board_index][0][0] = status   
+                        arduino_output_list[arduino_board_index][1][0] = status
+                        #print(line)
+                        arduino_output_list[arduino_board_index][0][1] = line   
+                        arduino_output_list[arduino_board_index][1][1] = line
                         #PROBLEM: prehitro pobiranje podatkov ga ubije
                         time.sleep(0.002)
 
-                print(f"Time elapsed: {i}s")
+                #print(f"Time elapsed: {i}s")
                 if samplingState == "finished":
                     print(f"cycle complete - reference for board {arduino_board_port} recorded")
                     break
@@ -537,6 +602,8 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
 def sensor_error_queue(error_queue, sensor_error_array, arduino_board_number, point, interp_ref_point):
     #print(error_queue.shape)
     #print(error_queue)
+    global arduino_output_list
+    arduino_board = arduino_output_list[arduino_board_number]
     sensor_error_array = np.transpose(sensor_error_array)
     error_queue = np.delete(error_queue, 0, 1)
     #Append error
@@ -544,11 +611,16 @@ def sensor_error_queue(error_queue, sensor_error_array, arduino_board_number, po
 
     for i in range(2):
         err = error_queue[i]
+        status = "OK"
         if min(err) > 0.3:
+            status = "Warning"
             print(f"Warning: something is wrong near sensor {i}, board {arduino_board_number}")
             print(err)
             print(f"point{point} refpoint {interp_ref_point}")
             #send_command("speed 20")
+        
+        arduino_output_list[arduino_board_number][i][0] = status
+        arduino_output_list[arduino_board_number][i][1] = err
     return error_queue
 
 def check_sensors(point, t_sample_start, error_queue, arduino_board_number):
