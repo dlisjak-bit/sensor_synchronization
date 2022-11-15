@@ -7,7 +7,13 @@ rtde-2.6.0/mycode/Datareader2
 ### Further work
 - [X] real-time synchronization_test.py
 - [X] two-way rtde exchange (real-time robot controls)  
-- [ ] sensor setup  
-- [X] multithreading  
+- [X] sensor setup  
+- [X] multithreading 
+- [X] parallel sensor reference read 
+- [ ] live error readout    
+- [ ] several cycles for reference - sort array by time 
+- [ ] collision detection
+- [ ] adaptive reference if there is no collision   
+- [ ] saving measurements
 ### Issues
 - [ ] sampling time, refresh rate? (not precise?)  
