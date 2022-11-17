@@ -55,8 +55,9 @@ def read_sensor_reference(file):
     return array      # array[board][data]
 
 def sensor_error_queue(error_queue, sensor_error_array, arduino_board_number):
-    print(error_queue.shape)
-    print(error_queue)
+    #global reduced_speed
+    global arduino_output_list
+    #arduino_board = arduino_output_list[arduino_board_number]
     sensor_error_array = np.transpose(sensor_error_array)
     error_queue = np.delete(error_queue, 0, 1)
     #Append error
@@ -64,8 +65,20 @@ def sensor_error_queue(error_queue, sensor_error_array, arduino_board_number):
 
     for i in range(2):
         err = error_queue[i]
-        if min(err) > 0.2:
+        status = "OK"
+        if min(err) > 0.3:
+            status = "Warning"
             print(f"Warning: something is wrong near sensor {i}, board {arduino_board_number}")
+            print(err)
+            #print(f"point{point} refpoint {interp_ref_point}")
+            #send_command("speed 20")
+            reduced_speed = True
+        elif reduced_speed:
+            #send_command("speed 100")
+            reduced_speed = False
+        
+        #arduino_output_list[arduino_board_number][i][0] = status
+        #arduino_output_list[arduino_board_number][i][1] = err
     return error_queue
 
 def main():
@@ -74,7 +87,7 @@ def main():
     sensor_ref_array =read_sensor_reference("test_sensors")
     print(sensor_ref_array[0].shape)
     sample_point = np.transpose(np.array([250,250]))
-    t_sample_start = 4.98
+    t_sample_start = 3.62
     interp_ref_point, interp_ref_time = interpolate_sensor_point(t_sample_start, 0)
     print(interp_ref_point)
     sensor_error_array = [(abs(distance - ref_distance)/ref_distance) for distance, ref_distance in zip(sample_point, interp_ref_point)]

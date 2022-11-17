@@ -56,6 +56,8 @@ arduino_output_list = []
 for i in range(num_arduinos):
     arduino_output_list.append([[[""], [""]],[[""], [""]]])
 
+# check for reduced speed: if no error, safely put speed back to normal
+reduced_speed = False
 
 # Plotting logs
 error_display = np.array([])
@@ -602,6 +604,7 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
 def sensor_error_queue(error_queue, sensor_error_array, arduino_board_number, point, interp_ref_point):
     #print(error_queue.shape)
     #print(error_queue)
+    global reduced_speed
     global arduino_output_list
     arduino_board = arduino_output_list[arduino_board_number]
     sensor_error_array = np.transpose(sensor_error_array)
@@ -617,7 +620,11 @@ def sensor_error_queue(error_queue, sensor_error_array, arduino_board_number, po
             print(f"Warning: something is wrong near sensor {i}, board {arduino_board_number}")
             print(err)
             print(f"point{point} refpoint {interp_ref_point}")
-            #send_command("speed 20")
+            send_command("speed 20")
+            reduced_speed = True
+        elif reduced_speed:
+            send_command("speed 100")
+            reduced_speed = False
         
         arduino_output_list[arduino_board_number][i][0] = status
         arduino_output_list[arduino_board_number][i][1] = err
