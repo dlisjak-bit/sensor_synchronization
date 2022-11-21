@@ -60,6 +60,7 @@ for i in range(num_arduinos):
 reduced_speed = False
 
 # Plotting logs
+T_MAX = 0
 error_display = np.array([])
 sensor_measurement_display = np.array([])
 
@@ -71,10 +72,6 @@ def main():
     global show_time
     show_time = False
     record_reference, show_time = argparse(record_reference, show_time)
-    
-    # Start output thread
-    t0 = Thread(target=output_thread)
-    t0.start()
 
     # Start data processors and input thread
     t1 = Thread(target=data_processor_thread)
@@ -90,14 +87,17 @@ def data_processor_thread():
     global reference_file
     global record_reference
     global show_time
+    global T_MAX
+    global sensor_ref_array
 
     # Start robot
     connect_robot()
     if record_reference:
         robot_reference_file = new_robot_reference()
         print("Using new reference motion ...")
-
     tref,ref,pct100,do100 = read_robot_reference(robot_reference_file)
+    # All interpolation of new sensor reference arrays will go to T_MAX
+    T_MAX = max(tref)
     robot_thread = Thread(target=robot_input_reader, args=[tref, ref])
     robot_thread.start()
 
@@ -107,13 +107,22 @@ def data_processor_thread():
         sensor_reference_file = new_sensor_reference()
         send_command("speed 100")
         print("Recorded all sensor reference files.")
-
-
-    global sensor_ref_array
     sensor_ref_array = read_sensor_reference(sensor_reference_file)
+
+    # Interpolate each arduino's sensor reference to 1000Hz
+    new_ref_file = sensor_ref_interp(sensor_ref_array)
+    sensor_ref_array = read_sensor_reference(new_ref_file)
+    print("Interpolated new sensor reference")
+
+    # Start output thread
+    t0 = Thread(target=output_thread)
+    t0.start()
+
+    # Start Sensors
     t3 = Thread(target=sensor_thread)
     t3.start()
 
+    # Start taking input - needs work if its at the same time as output 
     t2 = Thread(target=take_input_thread)
     t2.start()
 
@@ -145,6 +154,23 @@ def argparse(record_reference, show_time):
         print (str(err))
     
     return record_reference, show_time
+
+def sensor_ref_interp(sensor_ref_array):
+    subdivisions = 1000
+    t_max_rounded = int(T_MAX*subdivisions)/subdivisions
+    x = np.linspace(0, t_max_rounded, int(t_max_rounded*subdivisions))
+    for i in range(num_arduinos):
+        sensor_tref = sensor_ref_array[i][0]
+        sensor_ref = sensor_ref_array[i][1:3]
+        subdivided = interp_nd(x, sensor_tref[0:len(sensor_tref)-1], sensor_ref[:,0:len(sensor_tref)-1])
+        new_reference = np.vstack((x, subdivided))
+        # Also write to file - not necessary, but easy to just read again
+        with open(f"interpolated_sensors{i}.csv", "w") as f:
+            f.write(f"time,distance0,distance1\n")
+            for i in range(1, len(x)):
+                f.write(f"{int(new_reference[0][i]*subdivisions)/subdivisions},{int(new_reference[1][i])},{int(new_reference[2][i])}\n")
+    return "interpolated_sensors"
+
 
 # Math.
 def normalize(v):
