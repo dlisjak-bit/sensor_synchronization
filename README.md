@@ -10,8 +10,9 @@ rtde-2.6.0/mycode/Datareader2
 - [X] sensor setup  
 - [X] multithreading 
 - [X] parallel sensor reference read 
-- [ ] live error readout    
-- [ ] several cycles for reference - sort array by time 
+- [X] live error readout  
+- [ ] live graphs  
+- [X] several cycles for reference - sort array by time - just using lower speed
 - [ ] collision detection
 - [ ] adaptive reference if there is no collision   
 - [ ] saving measurements
