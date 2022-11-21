@@ -158,7 +158,7 @@ def argparse(record_reference, show_time):
 def sensor_ref_interp(sensor_ref_array):
     subdivisions = 1000
     t_max_rounded = int(T_MAX*subdivisions)/subdivisions
-    x = np.linspace(0, t_max_rounded, int(t_max_rounded*subdivisions))
+    x = np.arange(0, t_max_rounded*subdivisions)*0.001
     for i in range(num_arduinos):
         sensor_tref = sensor_ref_array[i][0]
         sensor_ref = sensor_ref_array[i][1:3]
@@ -600,6 +600,10 @@ def reference_sensor_reader(arduino_board_port, arduino_board_index):
 def singleboard_datareader(arduino_board_port, arduino_board_number):
     queue_length = 10  
     error_queue = np.zeros((2, queue_length)) # 2 sensors
+    ref_time = []
+    ref_distance0 = []
+    ref_distance1 = []
+    collision = False
 
     with serial.Serial() as ser:
         ser.baudrate = ARDUINO_BAUDRATE
@@ -608,7 +612,7 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
 
         txt = ser.readline()    # read line which just confirms that ranging is working
         txt = ser.readline()    # read line which just confirms that ranging is working
-        
+        start_time = normalized_t.copy()
         while collect_data:   # sampling time
             for j in range(50):
                 for k in range(1):
@@ -626,6 +630,55 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                             distance2 = 2000
                     point = np.transpose([float(distance1), float(distance2)])
                     error_queue = check_sensors(point, t_sample_start, error_queue, arduino_board_number)
+                    if t_sample_start - start_time > 2.0:
+                        # 2 normalized seconds have gone by: adapt reference
+                        start_time = t_sample_start
+                        current_ref_array = np.vstack((ref_time, ref_distance0, ref_distance1))
+                        if not collision:
+                            adapt_reference(current_ref_array, arduino_board_number)
+                        ref_time = []
+                        ref_distance0 = []
+                        ref_distance1 = []
+                    if t_sample_start - start_time < -0.01:
+                        # We entered a new cycle - remove measurements from new cycle and adapt those from previous
+                        start_time = t_sample_start
+                        ref_time = ref_time[0:np.where(ref_time == max(ref_time))[0][0]+1]
+                        ref_distance0 = ref_distance0[0:np.where(ref_time == max(ref_time))[0][0]+1]
+                        ref_distance1 = ref_distance1[0:np.where(ref_time == max(ref_time))[0][0]+1]
+                        current_ref_array = np.vstack((ref_time, ref_distance0, ref_distance1))
+                        if not collision:
+                            adapt_reference(current_ref_array, arduino_board_number)
+                        ref_time = []
+                        ref_distance0 = []
+                        ref_distance1 = []
+
+def adapt_reference(current_ref_array, arduino_board_number):
+    global sensor_ref_array
+    w_old = 0.8
+    w_new = 0.2
+
+    sensor_tref_rec = current_ref_array[0]
+    sensor_ref_rec = current_ref_array[1:3]
+
+    subdivisions = 1000
+
+    # Round end and start times
+    t_start = int(sensor_tref_rec[0]*subdivisions)/subdivisions
+    t_end = int(sensor_tref_rec[-1]*subdivisions)/subdivisions
+    
+    # Find index of where to do weighted average
+    start_index = max(int(t_start*subdivisions)-1, 0)
+    end_index = min(int(t_end*subdivisions)-1, int(T_MAX*subdivisions-2))
+
+    # Interpolate recorded reference
+    x = np.arange(0, t_end*subdivisions)*0.001 + t_start
+    subdivided = interp_nd(x, sensor_tref_rec[0:len(sensor_tref_rec)-1], sensor_ref_rec[:,0:len(sensor_tref_rec)-1])
+    for i in range(start_index, end_index):
+        for j in range(1,3):
+            old_weighted = w_old * sensor_ref_array[arduino_board_number][j][i]
+            new_weighted = w_new * subdivided[j][i-start_index]
+            sensor_ref_array[arduino_board_number][j][i] = old_weighted + new_weighted
+    print(f"Reference adapted at board {arduino_board_number}.")
 
 def sensor_error_queue(error_queue, sensor_error_array, arduino_board_number, point, interp_ref_point):
     #print(error_queue.shape)

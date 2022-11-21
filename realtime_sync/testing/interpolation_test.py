@@ -9,21 +9,21 @@ def main():
     reference0 = read_sensor_reference("test_sensors")
     #print(reference0)
     sensor_tref = reference0[0][0]
-    #print(sensor_tref)
+    #print(sensor_tref[len(sensor_tref)-1], sensor_tref[-1])
     sensor_ref = reference0[0][1:3]
     #print(sensor_ref)
     subdivisions = 1000
     t_max = 7.31989749 # Recimo. 
     t_max = int(t_max*subdivisions)/subdivisions
-    print(t_max)
+    #print(t_max)
     x = np.linspace(0, t_max, int(t_max*subdivisions)) # find t_max
     subdivided = interp_nd(x, sensor_tref[0:len(sensor_tref)-1], sensor_ref[:,0:len(sensor_tref)-1])
     new_reference = np.vstack((x, subdivided))
-    print(new_reference)
+    #print(new_reference)
     with open("interpolated_sensors1.csv", "w") as f:
         for i in range(len(x)):
             f.write(f"{int(new_reference[0][i]*subdivisions)/subdivisions},{int(new_reference[1][i])},{int(new_reference[2][i])}\n")
-    
+    print(np.where(sensor_tref == 0.03566101695012826)[0][0])
     # Pridejo novi podatki
     print(sensor_ref.shape)
     sensor_tref_novi = np.empty(len(sensor_tref)-5)
@@ -40,6 +40,9 @@ def main():
         for i in range(len(sensor_tref_novi)):
             f.write(f"{sensor_tref_novi[i]},{sensor_ref_novi[0][i]},{sensor_ref_novi[1][i]}\n")
 
+    t_min = int(sensor_tref_novi[0]*subdivisions)/subdivisions
+    print(t_max)
+    x = np.arange(0, t_max*subdivisions)*0.001 + 0
     subdivided = interp_nd(x, sensor_tref_novi[0:len(sensor_tref_novi)-1], sensor_ref_novi[:,0:len(sensor_tref_novi)-1])
     recorded_reference = np.vstack((x, subdivided))
 
