@@ -16,6 +16,7 @@ from serial.serialutil import *
 from queue import Queue
 from rich.console import Console
 from rich.table import Table
+from matplotlib.animation import FuncAnimation
 
 
 # --------------GUIDE----------------------------------------
@@ -81,6 +82,11 @@ def main():
     t1.start()
     if show_time:
         t2.start()
+    
+    # Wait so we get actual data:
+    time.sleep(30)
+    # Graphs must be in main thread:
+    graph_output()
 
 def data_processor_thread():
     
@@ -170,7 +176,6 @@ def sensor_ref_interp(sensor_ref_array):
             for i in range(1, len(x)):
                 f.write(f"{int(new_reference[0][i]*subdivisions)/subdivisions},{int(new_reference[1][i])},{int(new_reference[2][i])}\n")
     return "interpolated_sensors"
-
 
 # Math.
 def normalize(v):
@@ -464,7 +469,24 @@ def output_thread():
         console.print(table, end="\r")
         time.sleep(0.2)
         
-        
+def graph_output():
+    # Must be started from the main thread.
+    global fig, axs
+    fig, axs = plt.subplots(num_arduinos, 2)
+
+    ani = FuncAnimation(fig, graph_updater, interval=1000)
+
+def graph_updater():
+    global fig, axs
+    for num_arduino in range(num_arduinos):
+        for num_sensor in range(2):
+            ax = axs[num_arduino][num_sensor]
+            # Update data
+            sensor_data = []
+            warning = "No warning"
+            ax.text(warning.format(sensor_data[-1]))
+            ax.set_ylim(0,100)
+
 # Sensors
 def sensor_thread():
     global collect_data
@@ -635,7 +657,9 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                         start_time = t_sample_start
                         current_ref_array = np.vstack((ref_time, ref_distance0, ref_distance1))
                         if not collision:
-                            adapt_reference(current_ref_array, arduino_board_number)
+                            thread_adaptor = Thread(target = adapt_reference, args = [current_ref_array, arduino_board_number])
+                            thread_adaptor.start()
+                            #adapt_reference(current_ref_array, arduino_board_number)
                         ref_time = []
                         ref_distance0 = []
                         ref_distance1 = []
