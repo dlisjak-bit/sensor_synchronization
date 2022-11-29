@@ -63,6 +63,11 @@ reduced_speed = False
 # Plotting logs
 T_MAX = 0
 error_display = np.array([])
+graph_output_list = []
+for i in range(num_arduinos):
+    graph_output_list.append([])
+    for j in range(3):
+        graph_output_list[i].append([])
 sensor_measurement_display = np.array([])
 
 # Divide threads and start.
@@ -85,7 +90,7 @@ def main():
     
     # Wait so we get actual data:
     time.sleep(30)
-    # Graphs must be in main thread:
+    # Matplotlib graphs must be in main thread:
     graph_output()
 
 def data_processor_thread():
@@ -473,8 +478,8 @@ def graph_output():
     # Must be started from the main thread.
     global fig, axs
     fig, axs = plt.subplots(num_arduinos, 2)
-
     ani = FuncAnimation(fig, graph_updater, interval=1000)
+    plt.show()
 
 def graph_updater():
     global fig, axs
@@ -482,10 +487,11 @@ def graph_updater():
         for num_sensor in range(2):
             ax = axs[num_arduino][num_sensor]
             # Update data
-            sensor_data = []
+            ax.cla()
+            # Plot: sensor data, time
+            ax.plot(graph_output_list[num_arduino][num_sensor], graph_output_list[num_arduino][0])
             warning = "No warning"
-            ax.text(warning.format(sensor_data[-1]))
-            ax.set_ylim(0,100)
+            ax.text(warning.format(graph_output_list[num_arduino][num_sensor][-1]))
 
 # Sensors
 def sensor_thread():
@@ -512,7 +518,7 @@ def new_sensor_reference():
         t.join()
 
 
-    sensor_filename = "test_sensors"
+    sensor_filename = "sensor_ref"
     for i in range(num_arduinos):
         with open(f"{sensor_filename}{i}.csv", 'w') as f:
             f.write(f"time,distance0,distance1\n")
@@ -620,61 +626,73 @@ def reference_sensor_reader(arduino_board_port, arduino_board_index):
     sensor_ref_array_to_write[arduino_board_index] = array
 
 def singleboard_datareader(arduino_board_port, arduino_board_number):
+    global graph_output_list
     queue_length = 10  
     error_queue = np.zeros((2, queue_length)) # 2 sensors
     ref_time = []
     ref_distance0 = []
     ref_distance1 = []
     collision = False
+    with open(f"alldata/sensor_data_{arduino_board_number}.csv, w") as f:
+        with serial.Serial() as ser:
+            ser.baudrate = ARDUINO_BAUDRATE
+            ser.port = arduino_board_port
+            ser.open()
 
-    with serial.Serial() as ser:
-        ser.baudrate = ARDUINO_BAUDRATE
-        ser.port = arduino_board_port
-        ser.open()
+            txt = ser.readline()    # read line which just confirms that ranging is working
+            txt = ser.readline()    # read line which just confirms that ranging is working
+            start_time = normalized_t.copy()
+            while collect_data:   # sampling time
+                for j in range(50):
+                    for k in range(1):
+                        t_sample_start = normalized_t.copy()
+                        ser.write(str.encode("\n"))
+                        txt_array = ser.readline().decode("utf-8").strip()
+                        txt_array = txt_array.split(",")
+                        distance1 = txt_array[1]
+                        distance2 = txt_array[4]
+                        if txt_array[2] in ['2', '4', '7']:
+                            if distance1 > 1300:
+                                distance1 = 2000
+                        if txt_array[5] in ['2', '4', '7']:
+                            if distance2 > 1300:
+                                distance2 = 2000
+                        point = np.transpose([float(distance1), float(distance2)])
+                        # Append to file for graph output
+                        graph_output_list[arduino_board_number][0].append(t_sample_start)
+                        graph_output_list[arduino_board_number][1].append(float(distance1))
+                        graph_output_list[arduino_board_number][2].append(float(distance2))
+                        # Write to file
+                        f.write(f"{t_sample_start},{distance1},{distance2}\n")
+                        # Check for errors
+                        error_queue = check_sensors(point, t_sample_start, error_queue, arduino_board_number)
+                        if t_sample_start - start_time > 2.0:
+                            # 2 normalized seconds have gone by: adapt reference
+                            start_time = t_sample_start
+                            current_ref_array = np.vstack((ref_time, ref_distance0, ref_distance1))
+                            if not collision:
+                                thread_adaptor = Thread(target = adapt_reference, args = [current_ref_array, arduino_board_number])
+                                thread_adaptor.start()
+                                #adapt_reference(current_ref_array, arduino_board_number)
+                            ref_time = []
+                            ref_distance0 = []
+                            ref_distance1 = []
+                        if t_sample_start - start_time < -0.01:
+                            # We entered a new cycle - remove measurements from new cycle and adapt those from previous
+                            start_time = t_sample_start
+                            ref_time = ref_time[0:np.where(ref_time == max(ref_time))[0][0]+1]
+                            ref_distance0 = ref_distance0[0:np.where(ref_time == max(ref_time))[0][0]+1]
+                            ref_distance1 = ref_distance1[0:np.where(ref_time == max(ref_time))[0][0]+1]
+                            current_ref_array = np.vstack((ref_time, ref_distance0, ref_distance1))
+                            if not collision:
+                                adapt_reference(current_ref_array, arduino_board_number)
+                            ref_time = []
+                            ref_distance0 = []
+                            ref_distance1 = []
+                            # Also empty out graph_output
+                            for i in range(3):
+                                graph_output_list[arduino_board_number][i] = []
 
-        txt = ser.readline()    # read line which just confirms that ranging is working
-        txt = ser.readline()    # read line which just confirms that ranging is working
-        start_time = normalized_t.copy()
-        while collect_data:   # sampling time
-            for j in range(50):
-                for k in range(1):
-                    t_sample_start = normalized_t.copy()
-                    ser.write(str.encode("\n"))
-                    txt_array = ser.readline().decode("utf-8").strip()
-                    txt_array = txt_array.split(",")
-                    distance1 = txt_array[1]
-                    distance2 = txt_array[4]
-                    if txt_array[2] in ['2', '4', '7']:
-                        if distance1 > 1300:
-                            distance1 = 2000
-                    if txt_array[5] in ['2', '4', '7']:
-                        if distance2 > 1300:
-                            distance2 = 2000
-                    point = np.transpose([float(distance1), float(distance2)])
-                    error_queue = check_sensors(point, t_sample_start, error_queue, arduino_board_number)
-                    if t_sample_start - start_time > 2.0:
-                        # 2 normalized seconds have gone by: adapt reference
-                        start_time = t_sample_start
-                        current_ref_array = np.vstack((ref_time, ref_distance0, ref_distance1))
-                        if not collision:
-                            thread_adaptor = Thread(target = adapt_reference, args = [current_ref_array, arduino_board_number])
-                            thread_adaptor.start()
-                            #adapt_reference(current_ref_array, arduino_board_number)
-                        ref_time = []
-                        ref_distance0 = []
-                        ref_distance1 = []
-                    if t_sample_start - start_time < -0.01:
-                        # We entered a new cycle - remove measurements from new cycle and adapt those from previous
-                        start_time = t_sample_start
-                        ref_time = ref_time[0:np.where(ref_time == max(ref_time))[0][0]+1]
-                        ref_distance0 = ref_distance0[0:np.where(ref_time == max(ref_time))[0][0]+1]
-                        ref_distance1 = ref_distance1[0:np.where(ref_time == max(ref_time))[0][0]+1]
-                        current_ref_array = np.vstack((ref_time, ref_distance0, ref_distance1))
-                        if not collision:
-                            adapt_reference(current_ref_array, arduino_board_number)
-                        ref_time = []
-                        ref_distance0 = []
-                        ref_distance1 = []
 
 def adapt_reference(current_ref_array, arduino_board_number):
     global sensor_ref_array
@@ -697,11 +715,15 @@ def adapt_reference(current_ref_array, arduino_board_number):
     # Interpolate recorded reference
     x = np.arange(0, t_end*subdivisions)*0.001 + t_start
     subdivided = interp_nd(x, sensor_tref_rec[0:len(sensor_tref_rec)-1], sensor_ref_rec[:,0:len(sensor_tref_rec)-1])
-    for i in range(start_index, end_index):
-        for j in range(1,3):
-            old_weighted = w_old * sensor_ref_array[arduino_board_number][j][i]
-            new_weighted = w_new * subdivided[j][i-start_index]
-            sensor_ref_array[arduino_board_number][j][i] = old_weighted + new_weighted
+    with open(f"alldata/adapted_reference{arduino_board_number}.csv", "a") as f:
+        for i in range(start_index, end_index):
+            for j in range(1,3):
+                old_weighted = w_old * sensor_ref_array[arduino_board_number][j][i]
+                new_weighted = w_new * subdivided[j][i-start_index]
+                sensor_ref_array[arduino_board_number][j][i] = old_weighted[j-1] + new_weighted[j-1]
+            f.write(f"{sensor_ref_array[arduino_board_number][0][i]},{sensor_ref_array[arduino_board_number][1][i]},{sensor_ref_array[arduino_board_number][1][i]}")
+
+    
     print(f"Reference adapted at board {arduino_board_number}.")
 
 def sensor_error_queue(error_queue, sensor_error_array, arduino_board_number, point, interp_ref_point):
