@@ -30,6 +30,10 @@ from matplotlib.animation import FuncAnimation
 # speed <value (1-100)>: percentage speed slider to be set
 # exit: terminates program, robot continues operation
 
+# Problemi : nemoremo vseh refov naenkrat posnet, ker unici con.receive()
+# adapting reference v novemu ciklu neki ni ok: star in end indeksi so sam visoki
+# ko imamo napako, start index = end_index????
+# Continuous error ne dela lol
 
 # system variables
 updateFrequency = 125
@@ -40,12 +44,12 @@ thread_running = True
 robot_speed = 100
 
 ROBOT_HOST = '192.168.65.244'   # actual robot
-#ROBOT_HOST = '192.168.56.101'   # virtual robot
+#ROBOT_HOST = '192.168.56.102'   # virtual robot
 ROBOT_PORT = 30004
 
-ARDUINO_BOARD_PORT_ARRAY = ["/dev/tty.usbserial-1423110", "/dev/tty.usbserial-1423120", "/dev/tty.usbserial-1423130", "/dev/tty.usbserial-1423140"]
+ARDUINO_BOARD_PORT_ARRAY = ["/dev/tty.usbserial-1423130"]
 ARDUINO_BAUDRATE = 115200
-num_arduinos = 4
+num_arduinos = len(ARDUINO_BOARD_PORT_ARRAY)
 NUM_REF_CYCLES = 1
 
 argumentList = sys.argv[1:]
@@ -89,9 +93,9 @@ def main():
         t2.start()
     
     # Wait so we get actual data:
-    time.sleep(30)
+    time.sleep(120)
     # Matplotlib graphs must be in main thread:
-    graph_output()
+    #graph_output()
 
 def data_processor_thread():
     
@@ -114,7 +118,7 @@ def data_processor_thread():
 
     # Start sensors
     if record_reference:
-        send_command("speed 20")
+        #send_command("speed 20")
         sensor_reference_file = new_sensor_reference()
         send_command("speed 100")
         print("Recorded all sensor reference files.")
@@ -457,7 +461,7 @@ def send_command(user_input):
 def output_thread():
     global user_input
     user_input = ""
-    while True:
+    while False:
         table = Table(title = "Monitoring output")
         table.add_column("Source")
         table.add_column("Board no.")
@@ -481,7 +485,7 @@ def graph_output():
     ani = FuncAnimation(fig, graph_updater, interval=1000)
     plt.show()
 
-def graph_updater():
+def graph_updater(i):
     global fig, axs
     for num_arduino in range(num_arduinos):
         for num_sensor in range(2):
@@ -583,18 +587,18 @@ def reference_sensor_reader(arduino_board_port, arduino_board_index):
                             arduino_output_list[arduino_board_index][1][0] = status
                     elif samplingState == "waiting for sync high":
                         if (do%2)==1:
-                            #print("cycle start detected")
+                            print("cycle start detected")
                             samplingState = "collecting data"
                             status = samplingState
                             arduino_output_list[arduino_board_index][0][0] = status   
                             arduino_output_list[arduino_board_index][1][0] = status
                     if samplingState == "collecting data":
                         if (do%2)==0:
-                            if num_cycles_done < NUM_REF_CYCLES - 1:
-                                num_cycles_done += 1
-                            else:
-                                samplingState = "finished"
-                                break
+                            #if num_cycles_done < NUM_REF_CYCLES - 1:
+                                #num_cycles_done += 1
+                            #else:
+                            samplingState = "finished"
+                            break
                         t_sample = normalized_t.copy()
                         ser.write(str.encode("\n"))
                         txt_array = ser.readline().decode("utf-8").strip()
@@ -627,13 +631,13 @@ def reference_sensor_reader(arduino_board_port, arduino_board_index):
 
 def singleboard_datareader(arduino_board_port, arduino_board_number):
     global graph_output_list
-    queue_length = 10  
+    queue_length = 5 
     error_queue = np.zeros((2, queue_length)) # 2 sensors
     ref_time = []
     ref_distance0 = []
     ref_distance1 = []
     collision = False
-    with open(f"alldata/sensor_data_{arduino_board_number}.csv, w") as f:
+    with open(f"alldata/sensor_data_{arduino_board_number}.csv", "a") as f:
         with serial.Serial() as ser:
             ser.baudrate = ARDUINO_BAUDRATE
             ser.port = arduino_board_port
@@ -652,47 +656,54 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                         distance1 = txt_array[1]
                         distance2 = txt_array[4]
                         if txt_array[2] in ['2', '4', '7']:
-                            if distance1 > 1300:
+                            if int(distance1) > 1300 or int(distance1) < 200:
                                 distance1 = 2000
                         if txt_array[5] in ['2', '4', '7']:
-                            if distance2 > 1300:
+                            if int(distance2) > 1300 or int(distance2) < 200:
                                 distance2 = 2000
                         point = np.transpose([float(distance1), float(distance2)])
                         # Append to file for graph output
                         graph_output_list[arduino_board_number][0].append(t_sample_start)
                         graph_output_list[arduino_board_number][1].append(float(distance1))
                         graph_output_list[arduino_board_number][2].append(float(distance2))
+                        # For adapting reference
+                        ref_time.append(t_sample_start)
+                        ref_distance0.append(float(distance1))
+                        ref_distance1.append(float(distance2))
                         # Write to file
                         f.write(f"{t_sample_start},{distance1},{distance2}\n")
                         # Check for errors
                         error_queue = check_sensors(point, t_sample_start, error_queue, arduino_board_number)
-                        if t_sample_start - start_time > 2.0:
+                        if t_sample_start - start_time > 0.3:
                             # 2 normalized seconds have gone by: adapt reference
                             start_time = t_sample_start
                             current_ref_array = np.vstack((ref_time, ref_distance0, ref_distance1))
+                            print("adapting")
                             if not collision:
                                 thread_adaptor = Thread(target = adapt_reference, args = [current_ref_array, arduino_board_number])
                                 thread_adaptor.start()
+                                print("adapting")
                                 #adapt_reference(current_ref_array, arduino_board_number)
                             ref_time = []
                             ref_distance0 = []
                             ref_distance1 = []
-                        if t_sample_start - start_time < -0.01:
+                        if t_sample_start - start_time < -0.1:
                             # We entered a new cycle - remove measurements from new cycle and adapt those from previous
+                            print("NEW CYCLE ADAPT")
                             start_time = t_sample_start
                             ref_time = ref_time[0:np.where(ref_time == max(ref_time))[0][0]+1]
                             ref_distance0 = ref_distance0[0:np.where(ref_time == max(ref_time))[0][0]+1]
                             ref_distance1 = ref_distance1[0:np.where(ref_time == max(ref_time))[0][0]+1]
                             current_ref_array = np.vstack((ref_time, ref_distance0, ref_distance1))
                             if not collision:
-                                adapt_reference(current_ref_array, arduino_board_number)
+                                thread_adaptor = Thread(target = adapt_reference, args = [current_ref_array, arduino_board_number])
+                                thread_adaptor.start()
                             ref_time = []
                             ref_distance0 = []
                             ref_distance1 = []
                             # Also empty out graph_output
                             for i in range(3):
                                 graph_output_list[arduino_board_number][i] = []
-
 
 def adapt_reference(current_ref_array, arduino_board_number):
     global sensor_ref_array
@@ -711,20 +722,22 @@ def adapt_reference(current_ref_array, arduino_board_number):
     # Find index of where to do weighted average
     start_index = max(int(t_start*subdivisions)-1, 0)
     end_index = min(int(t_end*subdivisions)-1, int(T_MAX*subdivisions-2))
+    print(f"start index:{start_index}, end index: {end_index}")
 
     # Interpolate recorded reference
     x = np.arange(0, t_end*subdivisions)*0.001 + t_start
     subdivided = interp_nd(x, sensor_tref_rec[0:len(sensor_tref_rec)-1], sensor_ref_rec[:,0:len(sensor_tref_rec)-1])
     with open(f"alldata/adapted_reference{arduino_board_number}.csv", "a") as f:
         for i in range(start_index, end_index):
-            for j in range(1,3):
+            for j in range(0,2):
                 old_weighted = w_old * sensor_ref_array[arduino_board_number][j][i]
                 new_weighted = w_new * subdivided[j][i-start_index]
-                sensor_ref_array[arduino_board_number][j][i] = old_weighted[j-1] + new_weighted[j-1]
-            f.write(f"{sensor_ref_array[arduino_board_number][0][i]},{sensor_ref_array[arduino_board_number][1][i]},{sensor_ref_array[arduino_board_number][1][i]}")
+                sensor_ref_array[arduino_board_number][j][i] = old_weighted + new_weighted
+            f.write(f"{sensor_ref_array[arduino_board_number][0][j]},{sensor_ref_array[arduino_board_number][1][j]},{sensor_ref_array[arduino_board_number][1][j]}\n")
 
     
     print(f"Reference adapted at board {arduino_board_number}.")
+    return
 
 def sensor_error_queue(error_queue, sensor_error_array, arduino_board_number, point, interp_ref_point):
     #print(error_queue.shape)
@@ -766,24 +779,31 @@ def check_sensors(point, t_sample_start, error_queue, arduino_board_number):
     return error_queue
 
 def interpolate_sensor_point(t_sample_start, arduino_board_number, spread=2, subdivisions=10):
-    sensor_data = sensor_ref_array[arduino_board_number]
-    sensor_tref = sensor_data[0]
-    sensor_ref = sensor_data[1:3]
 
-    t_dif = [abs(t_sample_start-point) for point in sensor_tref]
-    idx = t_dif.index(min(t_dif))
+    subdivisions = 1000
+    t_rounded = int(t_sample_start*subdivisions)/subdivisions
+    index = int(t_rounded*subdivisions)-1
+    return np.transpose([sensor_ref_array[arduino_board_number][1][index], sensor_ref_array[arduino_board_number][2][index]]), sensor_ref_array[arduino_board_number][0][index]
 
-    #sensor_ref = sensor_ref.transpose()
+    while False: 
+        sensor_data = sensor_ref_array[arduino_board_number]
+        sensor_tref = sensor_data[0]
+        sensor_ref = sensor_data[1:3]
 
-    idxl = max(0, idx - spread)
-    idxh = min(len(sensor_tref)-1, idx + spread)
-    didx = idxh-idxl
+        t_dif = [abs(t_sample_start-point) for point in sensor_tref]
+        idx = t_dif.index(min(t_dif))
 
-    samplepts = np.linspace(sensor_tref[idxl], sensor_tref[idxh-1], didx*subdivisions)
-    subdivided = interp_nd(samplepts, sensor_tref[idxl:idxh], sensor_ref[:,idxl:idxh]) #test behaviour!
+        #sensor_ref = sensor_ref.transpose()
 
-    t_dif = [abs(t_sample_start-t_point) for t_point in samplepts]
-    idx = t_dif.index(min(t_dif))
+        idxl = max(0, idx - spread)
+        idxh = min(len(sensor_tref)-1, idx + spread)
+        didx = idxh-idxl
+
+        samplepts = np.linspace(sensor_tref[idxl], sensor_tref[idxh-1], didx*subdivisions)
+        subdivided = interp_nd(samplepts, sensor_tref[idxl:idxh], sensor_ref[:,idxl:idxh]) #test behaviour!
+
+        t_dif = [abs(t_sample_start-t_point) for t_point in samplepts]
+        idx = t_dif.index(min(t_dif))
 
     return subdivided[:, idx:idx+1], samplepts[idx]
 

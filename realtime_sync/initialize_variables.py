@@ -13,7 +13,7 @@ import rtde.rtde_config as rtde_config
 
 
 ROBOT_HOST = '192.168.65.244'   # actual robot
-ROBOT_HOST = '192.168.56.102'   # virtual robot
+#ROBOT_HOST = '192.168.56.102'   # virtual robot
 ROBOT_PORT = 30004
 robot_speed = 100
 updateFrequency = 125
