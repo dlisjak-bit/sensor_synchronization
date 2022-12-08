@@ -47,12 +47,13 @@ ROBOT_HOST = '192.168.65.244'   # actual robot
 #ROBOT_HOST = '192.168.56.102'   # virtual robot
 ROBOT_PORT = 30004
 
-ARDUINO_BOARD_PORT_ARRAY = ["/dev/tty.usbserial-1423130"]
+ARDUINO_BOARD_PORT_ARRAY = ["/dev/tty.usbserial-1423130","/dev/tty.usbserial-1423140" ]
 ARDUINO_BAUDRATE = 115200
 num_arduinos = len(ARDUINO_BOARD_PORT_ARRAY)
 NUM_REF_CYCLES = 1
 
 argumentList = sys.argv[1:]
+
 
 # Create table element for all threads 
 # (Robot), num_arduinos * (arduino_board), (input?)
@@ -60,9 +61,13 @@ robot_output = ["",""]
 arduino_output_list = []
 for i in range(num_arduinos):
     arduino_output_list.append([[[""], [""]],[[""], [""]]])
+last_command = ""
 
 # check for reduced speed: if no error, safely put speed back to normal
-reduced_speed = False
+reduced_speed = []
+for i in range(num_arduinos):
+    reduced_speed.append([])
+    reduced_speed[i] = [False, False]
 
 # Plotting logs
 T_MAX = 0
@@ -429,6 +434,8 @@ def send_command(user_input):
 
     global input_65
     global input_66
+    global last_command
+    last_command = user_input
     split = user_input.split()
     
     if user_input == "stop" or user_input == "halt":
@@ -448,7 +455,8 @@ def send_command(user_input):
             input_65.input_bit_register_65 = int(False)
             con.send(input_65)
             time.sleep(1)
-            print(f"Speed set to {split[1]}%")
+            #print(f"Speed set to {split[1]}%")
+            print(split[1])
         else: 
             print("Incorrect value. Speed must be between 1 and 100")
     elif user_input == "exit":
@@ -468,7 +476,7 @@ def output_thread():
         table.add_column("Status")
         table.add_column("Data")
 
-        table.add_row("Last command", user_input)
+        table.add_row("Last command", last_command)
         table.add_row("Robot", "", robot_output[0], robot_output[1])
         for idx, arduino_board in enumerate(arduino_output_list):
             for sensor_idx, sensor in enumerate(arduino_board):
@@ -656,10 +664,10 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                         distance1 = txt_array[1]
                         distance2 = txt_array[4]
                         if txt_array[2] in ['2', '4', '7']:
-                            if int(distance1) > 1300 or int(distance1) < 200:
+                            if int(distance1) > 200 or int(distance1) < 200:
                                 distance1 = 2000
                         if txt_array[5] in ['2', '4', '7']:
-                            if int(distance2) > 1300 or int(distance2) < 200:
+                            if int(distance2) > 200 or int(distance2) < 200:
                                 distance2 = 2000
                         point = np.transpose([float(distance1), float(distance2)])
                         while False:
@@ -746,26 +754,34 @@ def sensor_error_queue(error_queue, sensor_error_array, arduino_board_number, po
     #print(error_queue)
     global reduced_speed
     global arduino_output_list
-    arduino_board = arduino_output_list[arduino_board_number]
-    sensor_error_array = np.transpose(sensor_error_array)
+    #sensor_error_array = np.transpose(sensor_error_array)
     error_queue = np.delete(error_queue, 0, 1)
     #Append error
     error_queue = np.hstack((error_queue, sensor_error_array))
-
+    #print(reduced_speed[arduino_board_number][0],reduced_speed[arduino_board_number][1])
     for i in range(2):
         err = error_queue[i]
         status = "OK"
         if min(err) > 0.3:
             status = "Warning"
-            print(f"Warning: something is wrong near sensor {i}, board {arduino_board_number}")
+            #print(f"Warning: something is wrong near sensor {i}, board {arduino_board_number}")
             print(err)
-            print(f"point{point} refpoint {interp_ref_point}")
-            send_command("speed 20")
-            reduced_speed = True
-        elif reduced_speed:
-            send_command("speed 100")
-            reduced_speed = False
-        
+            #print(f"point{point} refpoint {interp_ref_point}")
+            speed_reduce_thread = Thread(target = send_command, args=["speed 20"])
+            speed_reduce_thread.start()
+            reduced_speed[arduino_board_number][i] = True
+        elif max(err) < 0.3 and reduced_speed[arduino_board_number][i]:
+            #print(reduced_speed)
+            reduced_speed[arduino_board_number][i] = False
+            reduced_speed_overall = False
+            for arduino_board in reduced_speed:
+                for sensor in arduino_board:
+                    if sensor:
+                        reduced_speed_overall = True
+            if not reduced_speed_overall:
+                speed_increase_thread = Thread(target = send_command, args=["speed 100"])
+                speed_increase_thread.start()
+        #print(reduced_speed)
         arduino_output_list[arduino_board_number][i][0] = status
         arduino_output_list[arduino_board_number][i][1] = err
     return error_queue
@@ -773,10 +789,14 @@ def sensor_error_queue(error_queue, sensor_error_array, arduino_board_number, po
 def check_sensors(point, t_sample_start, error_queue, arduino_board_number):
     #CHECK POINT DIMENSIONS - NEED ONLY DISTANCE
     interp_ref_point, interp_ref_time = interpolate_sensor_point(t_sample_start, arduino_board_number) # find reference point closest
-    if all(ref_distance > 100 for ref_distance in interp_ref_point):
-        sensor_error_array = np.transpose(np.array([(abs(distance - ref_distance)/ref_distance) for distance, ref_distance in zip(point, interp_ref_point)]))
-    else:
-        sensor_error_array = [np.array([0.0, 0.0])]
+    sensor_error_array = np.array([[0.0],[0.0]])
+    if all(ref_distance > 10 for ref_distance in interp_ref_point):
+        for i in range(2):
+            distance = point[i]
+            ref_distance = interp_ref_point[i]
+            sensor_error_array[i][0] = ((abs(distance - ref_distance)/ref_distance))
+        #sensor_error_array = np.transpose(np.array([[(abs(distance - ref_distance)/ref_distance)] for distance, ref_distance in zip(point, interp_ref_point)]))
+        #print(sensor_error_array)
     error_queue = sensor_error_queue(error_queue, sensor_error_array, arduino_board_number, point, interp_ref_point)
     return error_queue
 
@@ -784,7 +804,7 @@ def interpolate_sensor_point(t_sample_start, arduino_board_number, spread=2, sub
 
     subdivisions = 1000
     t_rounded = int(t_sample_start*subdivisions)/subdivisions
-    index = int(t_rounded*subdivisions)-1
+    index = min(int(t_rounded*subdivisions)-1, len(sensor_ref_array[arduino_board_number][1])-1)
     return np.transpose([sensor_ref_array[arduino_board_number][1][index], sensor_ref_array[arduino_board_number][2][index]]), sensor_ref_array[arduino_board_number][0][index]
 
     while False: 
