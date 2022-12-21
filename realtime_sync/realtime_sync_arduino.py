@@ -767,9 +767,10 @@ def sensor_error_queue(error_queue, sensor_error_array, arduino_board_number, po
             #print(f"Warning: something is wrong near sensor {i}, board {arduino_board_number}")
             print(err)
             #print(f"point{point} refpoint {interp_ref_point}")
-            speed_reduce_thread = Thread(target = send_command, args=["speed 20"])
-            speed_reduce_thread.start()
-            reduced_speed[arduino_board_number][i] = True
+            if not reduced_speed[arduino_board_number][i]:
+                speed_reduce_thread = Thread(target = send_command, args=["speed 20"])
+                speed_reduce_thread.start()
+                reduced_speed[arduino_board_number][i] = True
         elif max(err) < 0.3 and reduced_speed[arduino_board_number][i]:
             #print(reduced_speed)
             reduced_speed[arduino_board_number][i] = False
