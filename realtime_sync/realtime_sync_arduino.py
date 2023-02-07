@@ -44,11 +44,16 @@ reference_file = "reference_1664185538.csv"
 thread_running = True
 robot_speed = 100
 
+SAFETY_DISTANCE = 1000
+
 ROBOT_HOST = "192.168.65.244"  # actual robot
 # ROBOT_HOST = '192.168.56.102'   # virtual robot
 ROBOT_PORT = 30004
 
-ARDUINO_BOARD_PORT_ARRAY = ["/dev/tty.usbserial-1423130"]
+ARDUINO_BOARD_PORT_ARRAY = [
+    "/dev/tty.usbserial-1423120",
+    "/dev/tty.usbserial-1423130",
+]
 ARDUINO_BAUDRATE = 115200
 num_arduinos = len(ARDUINO_BOARD_PORT_ARRAY)
 NUM_REF_CYCLES = 1
@@ -72,12 +77,18 @@ for i in range(num_arduinos):
 
 # Plotting logs
 T_MAX = 0
-error_display = np.array([])
+error_display = []
 graph_output_list = []
+speed_display = []
 for i in range(num_arduinos):
     graph_output_list.append([])
+    error_display.append([])
+    speed_display.append([])
     for j in range(3):
         graph_output_list[i].append([])
+        error_display[i].append([])
+    for j in range(2):
+        speed_display[i].append([])
 sensor_measurement_display = np.array([])
 
 
@@ -114,6 +125,7 @@ def data_processor_thread():
     # Start robot
     connect_robot()
     if record_reference:
+        send_command("speed 100")
         robot_reference_file = new_robot_reference()
         print("Using new reference motion ...")
     tref, ref, pct100, do100 = read_robot_reference(robot_reference_file)
@@ -186,8 +198,8 @@ def sensor_ref_interp(sensor_ref_array):
         sensor_ref = sensor_ref_array[i][1:3]
         subdivided = interp_nd(
             x,
-            sensor_tref[0 : len(sensor_tref) - 1],
-            sensor_ref[:, 0 : len(sensor_tref) - 1],
+            sensor_tref[0 : len(sensor_tref)],
+            sensor_ref[:, 0 : len(sensor_tref)],
         )
         new_reference = np.vstack((x, subdivided))
         # Also write to file - not necessary, but easy to just read again
@@ -470,13 +482,14 @@ def send_command(user_input):
             speed_int.input_int_register_25 = int(split[1])
             con.send(speed_int)
             input_66.input_bit_register_66 = int(True)
-            con.send(input_65)
-            time.sleep(0.5)
             # input_66.input_bit_register_66 = int(False)
             con.send(input_66)
-            time.sleep(1)
+            # time.sleep(1)
             # print(f"Speed set to {split[1]}%")
             # print(split[1])
+            time.sleep(0.1)
+            input_66.input_bit_register_66 = int(False)
+            con.send(input_66)
         else:
             print("Incorrect value. Speed must be between 1 and 100")
     elif user_input == "exit":
@@ -490,7 +503,7 @@ def send_command(user_input):
 def output_thread():
     global user_input
     user_input = ""
-    while True:
+    while False:
         table = Table(title="Monitoring output")
         table.add_column("Source")
         table.add_column("Board no.")
@@ -664,13 +677,20 @@ def reference_sensor_reader(arduino_board_port, arduino_board_index):
                     ser.write(str.encode("\n"))
                     txt_array = ser.readline().decode("utf-8").strip()
                     txt_array = txt_array.split(",")
-                    distance1 = txt_array[1]
-                    distance2 = txt_array[4]
+                    distance0 = int(txt_array[1])
+                    distance1 = int(txt_array[4])
+                    # Handle weird signals
                     if txt_array[2] in ["2", "4", "7"]:
-                        distance1 = 2000
+                        # Distance failure
+                        distance0 = SAFETY_DISTANCE
                     if txt_array[5] in ["2", "4", "7"]:
-                        distance2 = 2000
-                    line = f"{t_sample},{distance1},{distance2}\n"
+                        # Distance failure
+                        distance1 = SAFETY_DISTANCE
+                    if distance0 > SAFETY_DISTANCE:
+                        distance0 = SAFETY_DISTANCE
+                    if distance1 > SAFETY_DISTANCE:
+                        distance1 = SAFETY_DISTANCE
+                    line = f"{t_sample},{distance0},{distance1}\n"
                     array.append(line)
                     status = samplingState
                     arduino_output_list[arduino_board_index][0][0] = status
@@ -722,31 +742,35 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                         ser.write(str.encode("\n"))
                         txt_array = ser.readline().decode("utf-8").strip()
                         txt_array = txt_array.split(",")
-                        distance1 = txt_array[1]
-                        distance2 = txt_array[4]
+                        distance0 = int(txt_array[1])
+                        distance1 = int(txt_array[4])
                         if txt_array[2] in ["2", "4", "7"]:
-                            if int(distance1) > 200 or int(distance1) < 200:
-                                distance1 = 2000
+                            # Distance failure
+                            distance0 = SAFETY_DISTANCE
                         if txt_array[5] in ["2", "4", "7"]:
-                            if int(distance2) > 200 or int(distance2) < 200:
-                                distance2 = 2000
-                        point = np.transpose([float(distance1), float(distance2)])
+                            # Distance failure
+                            distance1 = SAFETY_DISTANCE
+                        if distance0 > SAFETY_DISTANCE:
+                            distance0 = SAFETY_DISTANCE
+                        if distance1 > SAFETY_DISTANCE:
+                            distance1 = SAFETY_DISTANCE
+                        point = np.transpose([float(distance0), float(distance1)])
                         # Append to file for graph output
                         graph_output_list[arduino_board_number][0].append(
                             t_sample_start
                         )
                         graph_output_list[arduino_board_number][1].append(
-                            float(distance1)
+                            float(distance0)
                         )
                         graph_output_list[arduino_board_number][2].append(
-                            float(distance2)
+                            float(distance1)
                         )
                         # For adapting reference
                         ref_time.append(t_sample_start)
-                        ref_distance0.append(float(distance1))
-                        ref_distance1.append(float(distance2))
+                        ref_distance0.append(float(distance0))
+                        ref_distance1.append(float(distance1))
                         # Write to file
-                        f.write(f"{t_sample_start},{distance1},{distance2}\n")
+                        f.write(f"{t_sample_start},{distance0},{distance1}\n")
                         # Check for errors
                         error_queue = check_sensors(
                             point, t_sample_start, error_queue, arduino_board_number
@@ -802,8 +826,9 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
 def adapt_reference(current_ref_array, arduino_board_number):
     """Adapt the reference sensor point array with appropriate weights on a given time interval if no collision occured"""
     global sensor_ref_array
-    w_old = 0.8
-    w_new = 0.2
+    global error_display
+    w_new = 0.5
+    w_old = 1 - w_new
 
     sensor_tref_rec = current_ref_array[0]
     sensor_ref_rec = current_ref_array[1:3]
@@ -821,11 +846,16 @@ def adapt_reference(current_ref_array, arduino_board_number):
 
     # Interpolate recorded reference
     x = np.arange(0, t_end * subdivisions) * 0.001 + t_start
+    x = []
+    for i in range(int(t_end * subdivisions - t_start * subdivisions)):
+        x.append(i * 1 / subdivisions + t_start)
+    x = np.array(x)
     subdivided = interp_nd(
         x,
-        sensor_tref_rec[0 : len(sensor_tref_rec) - 1],
-        sensor_ref_rec[:, 0 : len(sensor_tref_rec) - 1],
+        sensor_tref_rec[0 : len(sensor_tref_rec)],
+        sensor_ref_rec[:, 0 : len(sensor_tref_rec)],
     )
+
     with open(f"alldata/adapted_reference{arduino_board_number}.csv", "a") as f:
         for i in range(start_index, end_index):
             for j in range(1, 3):
@@ -835,9 +865,18 @@ def adapt_reference(current_ref_array, arduino_board_number):
                     old_weighted + new_weighted
                 )
             f.write(
-                f"{sensor_ref_array[arduino_board_number][0][j]},{sensor_ref_array[arduino_board_number][1][j]},{sensor_ref_array[arduino_board_number][1][j]}\n"
+                f"{sensor_ref_array[arduino_board_number][0][i]},{sensor_ref_array[arduino_board_number][1][i]},{sensor_ref_array[arduino_board_number][2][i]}\n"
             )
 
+    for num_arduino in range(num_arduinos):
+        with open(f"alldata/error_logs{num_arduino}.csv", "a") as f:
+            for i in range(len(error_display[num_arduino][0])):
+                f.write(
+                    f"{error_display[num_arduino][0][i]},{error_display[num_arduino][1][i]},{error_display[num_arduino][2][i]}\n"
+                )
+    for i in range(num_arduinos):
+        for j in range(3):
+            error_display[i][j].clear()
     print(f"Reference adapted at board {arduino_board_number}.")
     return
 
@@ -845,15 +884,19 @@ def adapt_reference(current_ref_array, arduino_board_number):
 def check_sensors(point, t_sample_start, error_queue, arduino_board_number):
     """Compare expected point with actual point - call sensor_error_queue to analyse error"""
     # CHECK POINT DIMENSIONS - NEED ONLY DISTANCE
+    global error_display
     interp_ref_point, interp_ref_time = interpolate_sensor_point(
         t_sample_start, arduino_board_number
     )  # find reference point closest
     sensor_error_array = np.array([[0.0], [0.0]])
-    if all(ref_distance > 10 for ref_distance in interp_ref_point):
+    error_display[arduino_board_number][0].append(t_sample_start)
+    if all(ref_distance > 10 for ref_distance in interp_ref_point) or True:
         for i in range(2):
             distance = point[i]
             ref_distance = interp_ref_point[i]
-            sensor_error_array[i][0] = abs(distance - ref_distance) / ref_distance
+            error = (ref_distance - distance) / ref_distance
+            sensor_error_array[i][0] = error
+            error_display[arduino_board_number][i + 1].append(error)
         # sensor_error_array = np.transpose(np.array([[(abs(distance - ref_distance)/ref_distance)] for distance, ref_distance in zip(point, interp_ref_point)]))
         # print(sensor_error_array)
     error_queue = sensor_error_queue(
@@ -880,7 +923,10 @@ def sensor_error_queue(
         status = "OK"
         if min(err) > 0.3:
             status = "Warning"
-            # print(f"Warning: something is wrong near sensor {i}, board {arduino_board_number}")
+            print(
+                f"Warning: something is wrong near sensor {i}, board {arduino_board_number}"
+            )
+            print(point)
             # print(err)
             # print(f"point{point} refpoint {interp_ref_point}")
             if not reduced_speed[arduino_board_number][i]:
