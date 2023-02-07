@@ -48,12 +48,7 @@ ROBOT_HOST = "192.168.65.244"  # actual robot
 # ROBOT_HOST = '192.168.56.102'   # virtual robot
 ROBOT_PORT = 30004
 
-ARDUINO_BOARD_PORT_ARRAY = [
-    "/dev/tty.usbserial-1423110",
-    "/dev/tty.usbserial-1423120",
-    "/dev/tty.usbserial-1423130",
-    "/dev/tty.usbserial-1423140",
-]
+ARDUINO_BOARD_PORT_ARRAY = ["/dev/tty.usbserial-1423130"]
 ARDUINO_BAUDRATE = 115200
 num_arduinos = len(ARDUINO_BOARD_PORT_ARRAY)
 NUM_REF_CYCLES = 1
@@ -634,7 +629,7 @@ def reference_sensor_reader(arduino_board_port, arduino_board_index):
         num_cycles_done = 0
         for i in range(samplingTime):
             for j in range(50):
-                time.sleep(0.02)
+                time.sleep(0.01)
                 state = sensor_ref_state
                 do = state.actual_digital_output_bits
 
@@ -736,74 +731,72 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                             if int(distance2) > 200 or int(distance2) < 200:
                                 distance2 = 2000
                         point = np.transpose([float(distance1), float(distance2)])
-                        while False:
-                            # Append to file for graph output
-                            graph_output_list[arduino_board_number][0].append(
-                                t_sample_start
-                            )
-                            graph_output_list[arduino_board_number][1].append(
-                                float(distance1)
-                            )
-                            graph_output_list[arduino_board_number][2].append(
-                                float(distance2)
-                            )
-                            # For adapting reference
-                            ref_time.append(t_sample_start)
-                            ref_distance0.append(float(distance1))
-                            ref_distance1.append(float(distance2))
+                        # Append to file for graph output
+                        graph_output_list[arduino_board_number][0].append(
+                            t_sample_start
+                        )
+                        graph_output_list[arduino_board_number][1].append(
+                            float(distance1)
+                        )
+                        graph_output_list[arduino_board_number][2].append(
+                            float(distance2)
+                        )
+                        # For adapting reference
+                        ref_time.append(t_sample_start)
+                        ref_distance0.append(float(distance1))
+                        ref_distance1.append(float(distance2))
                         # Write to file
                         f.write(f"{t_sample_start},{distance1},{distance2}\n")
                         # Check for errors
                         error_queue = check_sensors(
                             point, t_sample_start, error_queue, arduino_board_number
                         )
-                        while False:
-                            if t_sample_start - start_time > 0.3:
-                                # 2 normalized seconds have gone by: adapt reference
-                                start_time = t_sample_start
-                                current_ref_array = np.vstack(
-                                    (ref_time, ref_distance0, ref_distance1)
+                        if t_sample_start - start_time > 0.3:
+                            # 2 normalized seconds have gone by: adapt reference
+                            start_time = t_sample_start
+                            current_ref_array = np.vstack(
+                                (ref_time, ref_distance0, ref_distance1)
+                            )
+                            print("adapting")
+                            if not collision:
+                                thread_adaptor = Thread(
+                                    target=adapt_reference,
+                                    args=[current_ref_array, arduino_board_number],
                                 )
+                                thread_adaptor.start()
                                 print("adapting")
-                                if not collision:
-                                    thread_adaptor = Thread(
-                                        target=adapt_reference,
-                                        args=[current_ref_array, arduino_board_number],
-                                    )
-                                    thread_adaptor.start()
-                                    print("adapting")
-                                    # adapt_reference(current_ref_array, arduino_board_number)
-                                ref_time = []
-                                ref_distance0 = []
-                                ref_distance1 = []
-                            if t_sample_start - start_time < -0.1:
-                                # We entered a new cycle - remove measurements from new cycle and adapt those from previous
-                                print("NEW CYCLE ADAPT")
-                                start_time = t_sample_start
-                                ref_time = ref_time[
-                                    0 : np.where(ref_time == max(ref_time))[0][0] + 1
-                                ]
-                                ref_distance0 = ref_distance0[
-                                    0 : np.where(ref_time == max(ref_time))[0][0] + 1
-                                ]
-                                ref_distance1 = ref_distance1[
-                                    0 : np.where(ref_time == max(ref_time))[0][0] + 1
-                                ]
-                                current_ref_array = np.vstack(
-                                    (ref_time, ref_distance0, ref_distance1)
+                                # adapt_reference(current_ref_array, arduino_board_number)
+                            ref_time = []
+                            ref_distance0 = []
+                            ref_distance1 = []
+                        if t_sample_start - start_time < -0.1:
+                            # We entered a new cycle - remove measurements from new cycle and adapt those from previous
+                            print("NEW CYCLE ADAPT")
+                            start_time = t_sample_start
+                            ref_time = ref_time[
+                                0 : np.where(ref_time == max(ref_time))[0][0] + 1
+                            ]
+                            ref_distance0 = ref_distance0[
+                                0 : np.where(ref_time == max(ref_time))[0][0] + 1
+                            ]
+                            ref_distance1 = ref_distance1[
+                                0 : np.where(ref_time == max(ref_time))[0][0] + 1
+                            ]
+                            current_ref_array = np.vstack(
+                                (ref_time, ref_distance0, ref_distance1)
+                            )
+                            if not collision:
+                                thread_adaptor = Thread(
+                                    target=adapt_reference,
+                                    args=[current_ref_array, arduino_board_number],
                                 )
-                                if not collision:
-                                    thread_adaptor = Thread(
-                                        target=adapt_reference,
-                                        args=[current_ref_array, arduino_board_number],
-                                    )
-                                    thread_adaptor.start()
-                                ref_time = []
-                                ref_distance0 = []
-                                ref_distance1 = []
-                                # Also empty out graph_output
-                                for i in range(3):
-                                    graph_output_list[arduino_board_number][i] = []
+                                thread_adaptor.start()
+                            ref_time = []
+                            ref_distance0 = []
+                            ref_distance1 = []
+                            # Also empty out graph_output
+                            for i in range(3):
+                                graph_output_list[arduino_board_number][i] = []
 
 
 def adapt_reference(current_ref_array, arduino_board_number):
@@ -835,9 +828,9 @@ def adapt_reference(current_ref_array, arduino_board_number):
     )
     with open(f"alldata/adapted_reference{arduino_board_number}.csv", "a") as f:
         for i in range(start_index, end_index):
-            for j in range(0, 2):
+            for j in range(1, 3):
                 old_weighted = w_old * sensor_ref_array[arduino_board_number][j][i]
-                new_weighted = w_new * subdivided[j][i - start_index]
+                new_weighted = w_new * subdivided[j - 1][i - start_index]
                 sensor_ref_array[arduino_board_number][j][i] = (
                     old_weighted + new_weighted
                 )
