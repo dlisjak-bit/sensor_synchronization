@@ -104,7 +104,7 @@ def main():
         t2.start()
 
     # Wait so we get actual data:
-    time.sleep(120)
+    time.sleep(30)
     # Matplotlib graphs must be in main thread:
     # graph_output()
 
@@ -182,7 +182,7 @@ def argparse(record_reference, show_time):
 
 
 def sensor_ref_interp(sensor_ref_array):
-    filename = "interpolated_sensors"
+    filename = "alldata/interpolated_sensors"
     subdivisions = 1000
     t_max_rounded = int(T_MAX * subdivisions) / subdivisions
     x = np.arange(0, t_max_rounded * subdivisions) * 0.001
@@ -196,7 +196,7 @@ def sensor_ref_interp(sensor_ref_array):
         )
         new_reference = np.vstack((x, subdivided))
         # Also write to file - not necessary, but easy to just read again
-        with open(f"interpolated_sensors{i}.csv", "w") as f:
+        with open(f"{filename}{i}.csv", "w") as f:
             f.write(f"time,distance0,distance1\n")
             for i in range(1, len(x)):
                 f.write(
@@ -477,10 +477,10 @@ def send_command(user_input):
             input_66.input_bit_register_66 = int(True)
             con.send(input_65)
             time.sleep(0.5)
-            input_66.input_bit_register_65 = int(False)
+            # input_66.input_bit_register_66 = int(False)
             con.send(input_66)
             time.sleep(1)
-            print(f"Speed set to {split[1]}%")
+            # print(f"Speed set to {split[1]}%")
             # print(split[1])
         else:
             print("Incorrect value. Speed must be between 1 and 100")
@@ -495,7 +495,7 @@ def send_command(user_input):
 def output_thread():
     global user_input
     user_input = ""
-    while False:
+    while True:
         table = Table(title="Monitoring output")
         table.add_column("Source")
         table.add_column("Board no.")
@@ -736,7 +736,6 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                             if int(distance2) > 200 or int(distance2) < 200:
                                 distance2 = 2000
                         point = np.transpose([float(distance1), float(distance2)])
-                        print(point)
                         while False:
                             # Append to file for graph output
                             graph_output_list[arduino_board_number][0].append(
@@ -889,7 +888,7 @@ def sensor_error_queue(
         if min(err) > 0.3:
             status = "Warning"
             # print(f"Warning: something is wrong near sensor {i}, board {arduino_board_number}")
-            print(err)
+            # print(err)
             # print(f"point{point} refpoint {interp_ref_point}")
             if not reduced_speed[arduino_board_number][i]:
                 speed_reduce_thread = Thread(target=send_command, args=["speed 20"])
