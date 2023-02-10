@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 NUM_ARDUINOS = 1
 FILENAME = "error_logs"
 
-for arduino_board_number in range(1, NUM_ARDUINOS + 1):
+for arduino_board_number in range(3, NUM_ARDUINOS + 3):
     file = f"{FILENAME}{arduino_board_number}.csv"
     data = [[], [], []]
     with open(file, "r") as f:
@@ -18,12 +18,13 @@ for arduino_board_number in range(1, NUM_ARDUINOS + 1):
     for i in range(len(data[0])):
         if data[0][i] < prev_time and data[0][i] < 0.1 and prev_time > 8:
             # New cycle:
-            # print(data[0][i], prev_time)
+            print(data[0][i], prev_time)
             cycles.append(current_cycle)
             current_cycle = [[], [], []]
         for j in range(3):
             current_cycle[j].append(data[j][i])
         prev_time = data[0][i]
+        print(prev_time)
     print(len(cycles))
     for cycle in cycles:
         if len(cycle[0]) < 50:
@@ -32,7 +33,7 @@ for arduino_board_number in range(1, NUM_ARDUINOS + 1):
     print(len(cycles))
     fig, axs = plt.subplots(len(cycles), figsize=(3.5 * 4, 3.5 * (30 / 4)))
     for i in range(len(cycles)):
-        axs[i].scatter(cycles[i][0], cycles[i][1], label=f"relative error", s=0.8)
+        axs[i].scatter(cycles[i][0], cycles[i][2], label=f"relative error", s=0.8)
         axs[i].axhline(
             y=0.3, color="r", linestyle="-", linewidth=0.8, label="error threshold"
         )
