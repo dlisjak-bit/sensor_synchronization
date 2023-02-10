@@ -51,8 +51,10 @@ ROBOT_HOST = "192.168.65.244"  # actual robot
 ROBOT_PORT = 30004
 
 ARDUINO_BOARD_PORT_ARRAY = [
+    "/dev/tty.usbserial-1423110",
     "/dev/tty.usbserial-1423120",
     "/dev/tty.usbserial-1423130",
+    "/dev/tty.usbserial-1423140",
 ]
 ARDUINO_BAUDRATE = 115200
 num_arduinos = len(ARDUINO_BOARD_PORT_ARRAY)
@@ -135,25 +137,25 @@ def data_processor_thread():
     robot_thread.start()
 
     # Start sensors
-    # if record_reference:
-    #     # send_command("speed 20")
-    #     sensor_reference_file = new_sensor_reference()
-    #     send_command("speed 100")
-    #     print("Recorded all sensor reference files.")
-    # sensor_ref_array = read_sensor_reference(sensor_reference_file)
+    if record_reference:
+        # send_command("speed 20")
+        sensor_reference_file = new_sensor_reference()
+        send_command("speed 100")
+        print("Recorded all sensor reference files.")
+    sensor_ref_array = read_sensor_reference(sensor_reference_file)
 
     # Interpolate each arduino's sensor reference to 1000Hz
-    # new_ref_file = sensor_ref_interp(sensor_ref_array)
-    # sensor_ref_array = read_sensor_reference(new_ref_file)
-    # print("Interpolated new sensor reference")
+    new_ref_file = sensor_ref_interp(sensor_ref_array)
+    sensor_ref_array = read_sensor_reference(new_ref_file)
+    print("Interpolated new sensor reference")
 
     # Start output thread
     t0 = Thread(target=output_thread)
     t0.start()
 
     # Start Sensors
-    # t3 = Thread(target=sensor_thread)
-    # t3.start()
+    t3 = Thread(target=sensor_thread)
+    t3.start()
 
     # Start taking input - needs work if its at the same time as output
     # t2 = Thread(target=take_input_thread)
@@ -769,6 +771,14 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                         txt_array = txt_array.split(",")
                         distance0 = int(txt_array[1])
                         distance1 = int(txt_array[4])
+                        if txt_array[2] == "2":
+                            print(
+                                f"STATUS CODE 2, BOARD{arduino_board_number}S0, DISTANCE {distance0}\n"
+                            )
+                        if txt_array[5] == "2":
+                            print(
+                                f"STATUS CODE 2, BOARD{arduino_board_number}S1, DISTANCE {distance1}\n"
+                            )
                         if txt_array[2] in ["2", "4", "7"]:
                             # Distance failure
                             distance0 = SAFETY_DISTANCE
@@ -806,21 +816,21 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                             current_ref_array = np.vstack(
                                 (ref_time, ref_distance0, ref_distance1)
                             )
-                            print("adapting")
+                            # print("adapting")
                             if not collision:
                                 thread_adaptor = Thread(
                                     target=adapt_reference,
                                     args=[current_ref_array, arduino_board_number],
                                 )
                                 thread_adaptor.start()
-                                print("adapting")
+                                # print("adapting")
                                 # adapt_reference(current_ref_array, arduino_board_number)
                             ref_time = []
                             ref_distance0 = []
                             ref_distance1 = []
                         if t_sample_start - start_time < -0.1:
                             # We entered a new cycle - remove measurements from new cycle and adapt those from previous
-                            print("NEW CYCLE ADAPT")
+                            # print("NEW CYCLE ADAPT")
                             start_time = t_sample_start
                             ref_time = ref_time[
                                 0 : np.where(ref_time == max(ref_time))[0][0] + 1
@@ -867,7 +877,7 @@ def adapt_reference(current_ref_array, arduino_board_number):
     # Find index of where to do weighted average
     start_index = max(int(t_start * subdivisions) - 1, 0)
     end_index = min(int(t_end * subdivisions) - 1, int(T_MAX * subdivisions - 2))
-    print(f"start index:{start_index}, end index: {end_index}")
+    # print(f"start index:{start_index}, end index: {end_index}")
 
     # Interpolate recorded reference
     x = np.arange(0, t_end * subdivisions) * 0.001 + t_start
@@ -882,7 +892,7 @@ def adapt_reference(current_ref_array, arduino_board_number):
     )
 
     with open(f"alldata/adapted_reference{arduino_board_number}.csv", "a") as f:
-        for i in range(start_index, end_index):
+        for i in range(start_index, end_index - 1):
             for j in range(1, 3):
                 old_weighted = w_old * sensor_ref_array[arduino_board_number][j][i]
                 new_weighted = w_new * subdivided[j - 1][i - start_index]
@@ -902,7 +912,7 @@ def adapt_reference(current_ref_array, arduino_board_number):
     for i in range(num_arduinos):
         for j in range(3):
             error_display[i][j].clear()
-    print(f"Reference adapted at board {arduino_board_number}.")
+    # print(f"Reference adapted at board {arduino_board_number}.")
     return
 
 

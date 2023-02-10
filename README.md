@@ -26,7 +26,7 @@ rtde-2.6.0/mycode/Datareader2
 - [ ] izmerit splosen noise v meritvah senzorjev 
 - [ ] prilagajanje hitrosti sorazmerno odstopanju
 - [X] obdelava podatkov za board 0 in 1 (zacetek, skatla not, skatla vn)
-- [ ] fix time measurements - niso samo narascajoca - min distance iscemo po celem ref arrayu.. morda samo za max 0.1s referencnega casa
+- [X] fix time measurements - niso samo narascajoca - min distance iscemo po celem ref arrayu.. morda samo za max 0.1s referencnega casa
 naprej? tudi zdaj sprejemamo DO bite in takoj ko je new cycle nastavimo prev_time na 0? morda pa v manhattan distance vkljucimo tudi cas?
 ### Issues
 - [ ] sampling time, refresh rate? (not precise?) 
