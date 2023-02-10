@@ -135,29 +135,29 @@ def data_processor_thread():
     robot_thread.start()
 
     # Start sensors
-    if record_reference:
-        # send_command("speed 20")
-        sensor_reference_file = new_sensor_reference()
-        send_command("speed 100")
-        print("Recorded all sensor reference files.")
-    sensor_ref_array = read_sensor_reference(sensor_reference_file)
+    # if record_reference:
+    #     # send_command("speed 20")
+    #     sensor_reference_file = new_sensor_reference()
+    #     send_command("speed 100")
+    #     print("Recorded all sensor reference files.")
+    # sensor_ref_array = read_sensor_reference(sensor_reference_file)
 
     # Interpolate each arduino's sensor reference to 1000Hz
-    new_ref_file = sensor_ref_interp(sensor_ref_array)
-    sensor_ref_array = read_sensor_reference(new_ref_file)
-    print("Interpolated new sensor reference")
+    # new_ref_file = sensor_ref_interp(sensor_ref_array)
+    # sensor_ref_array = read_sensor_reference(new_ref_file)
+    # print("Interpolated new sensor reference")
 
     # Start output thread
     t0 = Thread(target=output_thread)
     t0.start()
 
     # Start Sensors
-    t3 = Thread(target=sensor_thread)
-    t3.start()
+    # t3 = Thread(target=sensor_thread)
+    # t3.start()
 
     # Start taking input - needs work if its at the same time as output
-    t2 = Thread(target=take_input_thread)
-    t2.start()
+    # t2 = Thread(target=take_input_thread)
+    # t2.start()
 
     print("Stopped receiving data.")
 
@@ -243,7 +243,9 @@ def interp_nd(x, rx, ry):
     return data
 
 
-def get_normalized_t(ref, tref, pt, method="euclidean", spread=2, subdivisions=10):
+def get_normalized_t(
+    ref, tref, pt, previous_t, method="euclidean", spread=2, subdivisions=10
+):
     """Use given method (euclidean/manhattan) to find nearest point in reference sample, interpolate nearby points to find precise reference time"""
 
     if method == "euclidean":
@@ -252,9 +254,16 @@ def get_normalized_t(ref, tref, pt, method="euclidean", spread=2, subdivisions=1
         get_distance = get_manhattan
     else:
         return -1
-    d, p = get_distance(ref - pt)
-    idxl = max(0, p[0][0] - spread)
-    idxh = min(len(ref[0]), p[0][0] + spread + 2)
+    # Search only ref with max 0.1s ahead of previous_t
+    tref_np = np.asarray(tref)
+    t_end = previous_t + 0.1
+    t_start = previous_t
+    idx_end = min((np.abs(tref_np - t_end)).argmin(), len(tref))
+    idx_start = (np.abs(tref_np - t_start)).argmin()
+    ref_interp = ref[:, idx_start : idx_end + 1]
+    d, p = get_distance(ref_interp - pt)
+    idxl = max(0, p[0][0] + idx_start - spread)
+    idxh = min(len(ref[0]), p[0][0] + idx_start + spread + 2)
     didx = idxh - idxl
 
     # Allocate array to divide time into more sample points
@@ -418,16 +427,13 @@ def robot_input_reader(tref, ref):
     global robot_output
 
     keep_running = True
+    previous_t = 0.0
     print("Receiving data from robot.")
+    samplingState = "waiting for sync low"
     while keep_running:
         for j in range(updateFrequency):
             # receive the current state
             state = con.receive()
-
-            if state is None:
-                print("connection lost, breaking")
-                break
-
             datapt = np.array([])
             # if some past data points are required in the future, maybe import queue
             t = state.timestamp
@@ -437,10 +443,29 @@ def robot_input_reader(tref, ref):
             tsf = state.target_speed_fraction
             do = state.actual_digital_output_bits
 
+            if state is None:
+                print("connection lost, breaking")
+                break
+            if samplingState == "waiting for sync low":
+                if (do % 2) == 0:
+                    samplingState = "waiting for sync high"
+                    robot_output[0] = samplingState
+            elif samplingState == "waiting for sync high":
+                if (do % 2) == 1:
+                    previous_t = 0.0
+                    samplingState = "collecting data"
+                    robot_output[0] = samplingState
+            if samplingState == "collecting data":
+                if (do % 2) == 0:
+                    samplingState = "waiting for sync high"
+
             datapt = np.append(q, qd)
             datapt = np.array(datapt).transpose()
             datapt = datapt.reshape(12, 1)
-            normalized_t = get_normalized_t(ref, tref, datapt, method)
+            normalized_t = get_normalized_t(ref, tref, datapt, previous_t, method)
+            # if normalized_t < previous_t:
+            #     print(f"ERR, time {normalized_t} prev {previous_t}\n")
+            previous_t = normalized_t
             robot_output[0] = "Monitoring time"
             robot_output[1] = f"{normalized_t} s"
             if show_time:

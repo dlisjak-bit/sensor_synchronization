@@ -14,17 +14,20 @@ rtde-2.6.0/mycode/Datareader2
 - [ ] live graphs  
 - [X] several cycles for reference - sort array by time - just using lower speed
 - [ ] collision detection
-- [ ] adaptive reference if there is no collision   
-- [ ] saving measurements 
+- [X] adaptive reference if there is no collision   
+- [X] saving measurements 
 - [X] all sensor read reference motion from same feed
 - [ ] if not reduced speed, morda poslji command samo ce ni overall
-- [ ] napake (poz/neg) (abs/rel)
+- [X] napake (poz/neg)  
+- [ ] napake (abs/rel)
 - [X] safe-distance variable (1m)
 - [ ] ignoriranje varnosti v delu cikla
 - [ ] obdelovanje status code-ov - manjka status1 in 2
 - [ ] izmerit splosen noise v meritvah senzorjev 
 - [ ] prilagajanje hitrosti sorazmerno odstopanju
-- [ ] obdelat podatke za board 0 in 1 (zacetek, skatla not, skatla vn)
+- [X] obdelava podatkov za board 0 in 1 (zacetek, skatla not, skatla vn)
+- [ ] fix time measurements - niso samo narascajoca - min distance iscemo po celem ref arrayu.. morda samo za max 0.1s referencnega casa
+naprej? tudi zdaj sprejemamo DO bite in takoj ko je new cycle nastavimo prev_time na 0? morda pa v manhattan distance vkljucimo tudi cas?
 ### Issues
 - [ ] sampling time, refresh rate? (not precise?) 
 - [X] speed 100 na zacetku ne dela? 
