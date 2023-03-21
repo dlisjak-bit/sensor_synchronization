@@ -6,14 +6,15 @@ import timeit
 import os
 import sys
 import getopt
-sys.path.append('..')
+
+sys.path.append("..")
 import time
 import rtde.rtde as rtde
 import rtde.rtde_config as rtde_config
 
 
-ROBOT_HOST = '192.168.65.244'   # actual robot
-#ROBOT_HOST = '192.168.56.102'   # virtual robot
+ROBOT_HOST = "192.168.65.244"  # actual robot
+# ROBOT_HOST = '192.168.56.102'   # virtual robot
 ROBOT_PORT = 30004
 robot_speed = 100
 updateFrequency = 125
@@ -29,11 +30,11 @@ cv = con.get_controller_version()
 print(f"controller version: {cv[0]}.{cv[1]}.{cv[2]}.{cv[3]}")
 
 # subscribe to the desired data
-global config 
+global config
 config = rtde_config.ConfigFile("cfg.xml")
-global state_names, state_types 
+global state_names, state_types
 state_names, state_types = config.get_recipe("state")
-con.send_output_setup(state_names, state_types, frequency = updateFrequency)
+con.send_output_setup(state_names, state_types, frequency=updateFrequency)
 
 # input bit for halting the process
 global input_65_names, input_65_types
