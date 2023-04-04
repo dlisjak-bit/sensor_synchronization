@@ -43,25 +43,28 @@ if not con.send_start():
     print("failed to start data transfer")
     sys.exit()
 force = con.receive()
-avg = np.array(force.ft_raw_wrench).astype(float)
+avg = np.array(force.target_current).astype(float)
 memory = [[], []]
 actual_forces = [[], []]
 start_time = time.time()
 force = con.receive()
-actual_forces[0].append(np.array(force.ft_raw_wrench))
+actual_forces[0].append(np.array(force.actual_current))
 actual_forces[1].append(time.time() - start_time)
-for i in range(5):
+for i in range(20):
     for j in range(updateFrequency):
         # receive the current state
         force = con.receive()
-        dif = abs(
-            np.array(force.ft_raw_wrench).astype(float) - actual_forces[0][-1]
-        )
+
+        target = np.array(force.target_current).astype(float)
+        actual = np.array(force.actual_current).astype(float)
+        # print(np.shape(target), np.shape(actual))
+        dif = abs((target - actual) / actual)
+        dif = abs(target - actual)
         print(dif, end="\r")
-        avg = (avg + np.array(force.ft_raw_wrench).astype(float)) / 2
+        # avg = (avg + np.array(force.ft_raw_wrench).astype(float)) / 2
         memory[0].append(dif)
         memory[1].append(time.time() - start_time)
-        actual_forces[0].append(np.array(force.ft_raw_wrench))
+        actual_forces[0].append(np.array(force.actual_current))
         actual_forces[1].append(time.time() - start_time)
 with open("forces_test.csv", "w") as f:
     for i in range(len(memory[0])):
@@ -71,7 +74,7 @@ fig, (ax1, ax2) = plt.subplots(1, 2)
 ax1.plot(memory[1], memory[0])
 ax2.plot(actual_forces[1], actual_forces[0])
 ax1.set_xlabel("time")
-ax1.set_ylabel("absolute force deviation from prev measurement")
+ax1.set_ylabel("relative force deviation from prev measurement")
 ax1.legend(range(6))
 ax2.set_xlabel("time")
 ax2.set_ylabel("absolute force measurement")

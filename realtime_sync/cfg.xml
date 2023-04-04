@@ -7,6 +7,9 @@
 		<field name="speed_scaling" type="DOUBLE"/>
 		<field name="target_speed_fraction" type="DOUBLE"/>
 		<field name="actual_digital_output_bits" type="UINT64"/>
+		<field name="ft_raw_wrench" type="VECTOR6D"/>
+		<field name="target_current" type="VECTOR6D"/>
+		<field name="actual_current" type="VECTOR6D"/>
 	</recipe>
 	<recipe key="in65">
         <field name="input_bit_register_65" type="BOOL"/>
@@ -19,6 +22,8 @@
 	</recipe>
 	<recipe key="forces">
 		<field name="ft_raw_wrench" type="VECTOR6D"/>
+		<field name="target_current" type="VECTOR6D"/>
+		<field name="actual_current" type="VECTOR6D"/>
 	</recipe>
 </rtde_config>
 	
