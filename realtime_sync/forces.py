@@ -19,7 +19,6 @@ ROBOT_PORT = 30004
 robot_speed = 100
 updateFrequency = 125
 
-# connect to the robot
 global con
 con = rtde.RTDE(ROBOT_HOST, ROBOT_PORT)
 con.connect()
@@ -32,9 +31,32 @@ print(f"controller version: {cv[0]}.{cv[1]}.{cv[2]}.{cv[3]}")
 # subscribe to the desired data
 global config
 config = rtde_config.ConfigFile("cfg.xml")
-global force_name, force_type
-force_name, force_type = config.get_recipe("forces")
-con.send_output_setup(force_name, force_type, frequency=updateFrequency)
+global state_names, state_types
+state_names, state_types = config.get_recipe("state")
+con.send_output_setup(state_names, state_types, frequency=updateFrequency)
+
+# input bit for halting the process
+global input_65_names, input_65_types
+input_65_names, input_65_types = config.get_recipe("in65")
+global input_65
+input_65 = con.send_input_setup(input_65_names, input_65_types)
+
+# input bit for setting the speed
+global input_66_names, input_66_types
+input_66_names, input_66_types = config.get_recipe("in66")
+global input_66
+input_66 = con.send_input_setup(input_66_names, input_66_types)
+
+# input int for setting the speed
+global speed_int_names, speed_int_types
+speed_int_names, speed_int_types = config.get_recipe("speed_int")
+global speed_int
+speed_int = con.send_input_setup(speed_int_names, speed_int_types)
+
+if not con.send_start():
+    print("failed to start data transfer")
+    sys.exit()
+
 np.set_printoptions(
     edgeitems=5, linewidth=1000, formatter=dict(float=lambda x: "%.12f" % x)
 )
@@ -53,18 +75,17 @@ actual_forces[1].append(time.time() - start_time)
 for i in range(20):
     for j in range(updateFrequency):
         # receive the current state
-        force = con.receive()
-
-        target = np.array(force.target_current).astype(float)
-        actual = np.array(force.actual_current).astype(float)
+        state = con.receive()
+        target = np.array(state.target_current).astype(float)
+        actual = np.array(state.actual_current).astype(float)
         # print(np.shape(target), np.shape(actual))
-        dif = abs((target - actual) / actual)
-        dif = abs(target - actual)
+        dif = (actual - target) / target
+        # dif = abs(target - actual)
         print(dif, end="\r")
         # avg = (avg + np.array(force.ft_raw_wrench).astype(float)) / 2
         memory[0].append(dif)
         memory[1].append(time.time() - start_time)
-        actual_forces[0].append(np.array(force.actual_current))
+        actual_forces[0].append(np.array(actual))
         actual_forces[1].append(time.time() - start_time)
 with open("forces_test.csv", "w") as f:
     for i in range(len(memory[0])):

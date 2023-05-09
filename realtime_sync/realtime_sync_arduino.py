@@ -34,12 +34,6 @@ sys.path.append("..")
 # speed <value (1-100)>: percentage speed slider to be set
 # exit: terminates program, robot continues operation
 
-# Problemi : nemoremo vseh refov naenkrat posnet, ker unici con.receive()
-# adapting reference v novemu ciklu neki ni ok: star in end indeksi so sam
-# visoki
-# ko imamo napako, start index = end_index????
-# Continuous error ne dela lol
-
 # system variables
 updateFrequency = 125
 samplingTime = 120  # sampling time in seconds
@@ -56,16 +50,17 @@ ROBOT_HOST = "192.168.65.244"  # actual robot
 ROBOT_PORT = 30004
 
 ARDUINO_BOARD_PORT_ARRAY = [
-    "/dev/tty.usbserial-1423110",
-    "/dev/tty.usbserial-1423120",
-    "/dev/tty.usbserial-1423130",
-    "/dev/tty.usbserial-1423140",
+    "/dev/tty.usbserial-1433110",
+    "/dev/tty.usbserial-1433120",
+    "/dev/tty.usbserial-1433130",
+    "/dev/tty.usbserial-1433140",
 ]
 ARDUINO_BAUDRATE = 115200
 num_arduinos = len(ARDUINO_BOARD_PORT_ARRAY)
 NUM_REF_CYCLES = 1
 collision = False
 sensors_active = False
+REDUCED_SPEED_PERCENTAGE = 0
 
 argumentList = sys.argv[1:]
 
@@ -79,7 +74,7 @@ for i in range(num_arduinos):
 # for each joint, enter sensor coordinates as tuple ex. (3,1)
 JOINT_SENSOR_MAP = [
     [],
-    [(3, 1), (2, 0)],
+    [],
     [],
     [],
     [],
@@ -497,7 +492,7 @@ def robot_input_reader(tref, ref, interp_forces):
             ss = state.speed_scaling
             tsf = state.target_speed_fraction
             do = state.actual_digital_output_bits
-            rec_forces = np.array(state.ft_raw_wrench)
+
             if state is None:
                 print("connection lost, breaking")
                 break
@@ -526,7 +521,9 @@ def robot_input_reader(tref, ref, interp_forces):
             target_c = np.array(state.target_current).astype(float)
             actual_c = np.array(state.actual_current).astype(float)
             if sensors_active:
-                if check_forces(target_c, actual_c, normalized_t):
+                if check_forces(
+                    target_c, actual_c, normalized_t, np.array(qd)
+                ):
                     if not collision:
                         print("COLLISION DETECTED !!!!!!!!!!!!!!!!")
                     collision = True
@@ -550,18 +547,17 @@ def robot_input_reader(tref, ref, interp_forces):
     con.disconnect()
 
 
-def check_forces(interp_forces, rec_forces, normalized_t):
-    subdivisions = 1000
-    # t_rounded = int(normalized_t * subdivisions) / subdivisions
-    # index = min(
-    #     int(t_rounded * subdivisions) - 1,
-    #     len(interp_forces[1]) - 1,
-    # )
-    # interp_force = np.array(interp_forces[:, index])
-    abs_dif = abs(interp_forces - rec_forces)
-    # rel_dif = abs(abs_dif / interp_force)
-    # print(dif)
-    return np.any(abs_dif > 1.6)
+def check_forces(
+    interp_forces, rec_forces, normalized_t, target_joint_velocities
+):
+    dif = interp_forces - rec_forces
+    sgn = -np.sign(target_joint_velocities)
+    # če sta predznaka nasprotna, tega ne želimo
+    if np.any(sgn * dif > 1.6):
+        print("force in opposite direction")
+    elif np.any(abs(dif) > 1.6):
+        print("force in same direction")
+    return np.any(sgn * dif > 1.65)
 
 
 def check_active_sensors(target_joint_velocities):
@@ -573,18 +569,19 @@ def check_active_sensors(target_joint_velocities):
     # Map joints to sensors and c
     for idx, sensor_list in enumerate(JOINT_SENSOR_MAP):
         for sensor in sensor_list:
+            # print(f"Analysing sensor {sensor}:")
             # print(target_joint_velocities[idx])
             if (
-                target_joint_velocities[idx] > 0
+                target_joint_velocities[idx] < 0
                 and not inactive_sensors[sensor[0]][sensor[1]]
             ):
                 inactive_sensors[sensor[0]][sensor[1]] = True
-                print(inactive_sensors)
+                # print("set to inactive")
             elif (
-                target_joint_velocities[idx] < 0
+                target_joint_velocities[idx] > 0
                 and inactive_sensors[sensor[0]][sensor[1]]
             ):
-                print(inactive_sensors)
+                # print("set to active")
                 inactive_sensors[sensor[0]][sensor[1]] = False
 
 
@@ -938,7 +935,9 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                         ref_distance0.append(float(distance0))
                         ref_distance1.append(float(distance1))
                         # Write to file
-                        f.write(f"{t_sample_start},{distance0},{distance1}\n")
+                        f.write(
+                            f"{t_sample_start},{distance0},{distance1},{REDUCED_SPEED_PERCENTAGE}\n"
+                        )
                         # Check for errors
                         error_queue = check_sensors(
                             point,
@@ -1059,12 +1058,12 @@ def adapt_reference(current_ref_array, arduino_board_number):
                 f"{sensor_ref_array[arduino_board_number][0][i]},{sensor_ref_array[arduino_board_number][1][i]},{sensor_ref_array[arduino_board_number][2][i]}\n"
             )
 
-    # for num_arduino in range(num_arduinos):
-    #     with open(f"alldata/error_logs{num_arduino}.csv", "a") as f:
-    #         for i in range(len(error_display[num_arduino][0])):
-    #             f.write(
-    #                 f"{error_display[num_arduino][0][i]},{error_display[num_arduino][1][i]},{error_display[num_arduino][2][i]}\n"
-    #             )
+    for num_arduino in range(num_arduinos):
+        with open(f"alldata/error_logs{num_arduino}.csv", "a") as f:
+            for i in range(len(error_display[num_arduino][0])):
+                f.write(
+                    f"{error_display[num_arduino][0][i]},{error_display[num_arduino][1][i]},{error_display[num_arduino][2][i]},{REDUCED_SPEED_PERCENTAGE}\n"
+                )
     for i in range(num_arduinos):
         for j in range(3):
             error_display[i][j].clear()
@@ -1105,6 +1104,17 @@ def check_sensors(point, t_sample_start, error_queue, arduino_board_number):
     return error_queue
 
 
+def calculate_error_threshold(distance):
+    reduced_percentage = 80 - 80 / 1000 * distance
+    if 60 < reduced_percentage <= 80:
+        return 80
+    elif 40 < reduced_percentage <= 60:
+        return 60
+    elif 20 < reduced_percentage <= 40:
+        return 40
+    return 20
+
+
 def sensor_error_queue(
     error_queue,
     sensor_error_array,
@@ -1117,6 +1127,7 @@ def sensor_error_queue(
     # print(error_queue)
     global reduced_speed
     global arduino_output_list
+    global REDUCED_SPEED_PERCENTAGE
     # sensor_error_array = np.transpose(sensor_error_array)
     error_queue = np.delete(error_queue, 0, 1)
     # Append error
@@ -1129,21 +1140,32 @@ def sensor_error_queue(
             status = "Warning"
             # print(err)
             # print(f"point{point} refpoint {interp_ref_point}")
+            reduced_percentage = calculate_error_threshold(point[i])
             if (
                 not reduced_speed[arduino_board_number][i]
                 and not inactive_sensors[arduino_board_number][i]
+            ) or (
+                reduced_percentage > REDUCED_SPEED_PERCENTAGE
+                and not inactive_sensors[arduino_board_number][i]
             ):
-                speed_reduce_thread = Thread(
-                    target=send_command, args=["speed 20"]
+                reduced_percentage = max(
+                    reduced_percentage, REDUCED_SPEED_PERCENTAGE
                 )
-                print(inactive_sensors[3][1])
+                REDUCED_SPEED_PERCENTAGE = reduced_percentage
+                speed_reduce_thread = Thread(
+                    target=send_command,
+                    args=[f"speed {100 - REDUCED_SPEED_PERCENTAGE}"],
+                )
+                # print(inactive_sensors[3][1])
                 speed_reduce_thread.start()
                 reduced_speed[arduino_board_number][i] = True
                 print(
                     f"Warning: something is wrong near sensor {i}, board {arduino_board_number}"
                 )
                 print(point)
-        elif max(err) < 0.3 and reduced_speed[arduino_board_number][i]:
+        elif (
+            max(err) < 0.3 and reduced_speed[arduino_board_number][i]
+        ) or inactive_sensors[arduino_board_number][i]:
             # print(reduced_speed)
             reduced_speed[arduino_board_number][i] = False
             reduced_speed_overall = False
@@ -1156,6 +1178,7 @@ def sensor_error_queue(
                     target=send_command, args=["speed 100"]
                 )
                 speed_increase_thread.start()
+                REDUCED_SPEED_PERCENTAGE = 0
         # print(reduced_speed)
         arduino_output_list[arduino_board_number][i][0] = status
         arduino_output_list[arduino_board_number][i][1] = err
