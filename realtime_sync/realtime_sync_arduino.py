@@ -42,6 +42,10 @@ robot_reference_file = "robot_reference.csv"
 sensor_reference_file = "sensor_ref"
 thread_running = True
 robot_speed = 100
+sensor_data_filename = "alldata/sensor_data_"
+interp_sensor_data_filename = "alldata/interpolated_sensors"
+error_logs_filename = "alldata/error_logs"
+adapted_reference_filename = "alldata/adapted_reference"
 
 SAFETY_DISTANCE = 1000
 
@@ -508,6 +512,12 @@ def robot_input_reader(tref, ref, interp_forces):
             if samplingState == "collecting data":
                 if (do % 2) == 0:
                     samplingState = "waiting for sync high"
+                    # END OF CYCLE MARKER
+                    for i in range(num_arduinos):
+                        with open(f"{error_logs_filename}{i}.csv", "a+") as f:
+                            f.write("-\n")
+                        with open(f"{sensor_data_filename}{i}.csv", "a+") as f:
+                            f.write("-\n")
 
             datapt = np.append(q, qd)
             datapt = np.array(datapt).transpose()
