@@ -21,6 +21,7 @@ from matplotlib.animation import FuncAnimation
 
 sys.path.append("..")
 
+# TODO: ne adaptira nazaj na visok speed
 
 # --------------GUIDE----------------------------------------
 # before running test_2.urp, run initialize variables.py
@@ -54,10 +55,10 @@ ROBOT_HOST = "192.168.65.244"  # actual robot
 ROBOT_PORT = 30004
 
 ARDUINO_BOARD_PORT_ARRAY = [
-    "/dev/tty.usbserial-1433110",
-    "/dev/tty.usbserial-1433120",
-    "/dev/tty.usbserial-1433130",
-    "/dev/tty.usbserial-1433140",
+    "/dev/tty.usbserial-1423110",
+    "/dev/tty.usbserial-1423120",
+    "/dev/tty.usbserial-1423130",
+    "/dev/tty.usbserial-1423140",
 ]
 ARDUINO_BAUDRATE = 115200
 num_arduinos = len(ARDUINO_BOARD_PORT_ARRAY)
@@ -84,6 +85,17 @@ JOINT_SENSOR_MAP = [
     [],
     [],
 ]
+
+# Clear out files
+for i in range(4):
+    with open(f"alldata/adapted_reference{i}.csv", "w") as f:
+        f.close()
+    with open(f"alldata/error_logs{i}.csv", "w") as f:
+        f.close()
+    with open(f"alldata/interpolated_sensors{i}.csv", "w") as f:
+        f.close()
+    with open(f"alldata/sensor_data{i}.csv", "w") as f:
+        f.close()
 
 # Create table element for all threads
 # (Robot), num_arduinos * (arduino_board), (input?)
@@ -287,13 +299,13 @@ def get_normalized_t(
         return -1
     # Search only ref with max 0.1s ahead of previous_t
     tref_np = np.asarray(tref)
-    t_end = previous_t + 0.1
+    t_end = previous_t + 3
     t_start = previous_t
     idx_end = min((np.abs(tref_np - t_end)).argmin(), len(tref))
     idx_start = (np.abs(tref_np - t_start)).argmin()
     ref_interp = ref[:, idx_start : idx_end + 1]
     d, p = get_distance(ref_interp - pt)
-    idxl = max(0, p[0][0] + idx_start - spread)
+    idxl = max(0, p[0][0] + idx_start)
     idxh = min(len(ref[0]), p[0][0] + idx_start + spread + 2)
     didx = idxh - idxl
 
@@ -352,6 +364,12 @@ def connect_robot():
     global input_66
     input_66 = con.send_input_setup(input_66_names, input_66_types)
 
+    # input bit for acknowledging cycle start
+    global input_67_names, input_67_types
+    input_67_names, input_67_types = config.get_recipe("in67")
+    global input_67
+    input_67 = con.send_input_setup(input_67_names, input_67_types)
+
     # input int for setting the speed
     global speed_int_names, speed_int_types
     speed_int_names, speed_int_types = config.get_recipe("speed_int")
@@ -363,6 +381,9 @@ def connect_robot():
         sys.exit()
 
     # setting default values so the program can run
+    input_67.input_bit_register_67 = int(False)
+    con.send(input_67)
+
     input_65.input_bit_register_65 = int(False)
     con.send(input_65)
 
@@ -379,6 +400,7 @@ def new_robot_reference():
     """
 
     global robot_output
+    global input_67
 
     ta = []
     qa = []
@@ -417,7 +439,10 @@ def new_robot_reference():
 
                 if samplingState == "waiting for sync low":
                     if (do % 2) == 0:
+                        input_67.input_bit_register_67 = int(True)
+                        con.send(input_67)
                         samplingState = "waiting for sync high"
+                        print(samplingState)
                         robot_output[0] = samplingState
                 elif samplingState == "waiting for sync high":
                     if (do % 2) == 1:
@@ -426,8 +451,12 @@ def new_robot_reference():
                         robot_output[0] = samplingState
                 if samplingState == "collecting data":
                     if (do % 2) == 0:
+                        input_67.input_bit_register_67 = int(True)
+                        con.send(input_67)
                         samplingState = "finished"
                         break
+                    input_67.input_bit_register_67 = int(False)
+                    con.send(input_67)
                     ta.append(t)
                     qa.append(q)
                     qda.append(qd)
@@ -478,7 +507,7 @@ def robot_input_reader(tref, ref, interp_forces):
     global keep_running
     global robot_output
     global collision
-
+    global recording_sensor_reference
     collision_time = 0.0
     keep_running = True
     previous_t = 0.0
@@ -502,23 +531,32 @@ def robot_input_reader(tref, ref, interp_forces):
                 break
             if samplingState == "waiting for sync low":
                 if (do % 2) == 0:
+                    # if not recording_sensor_reference:
+                    #     input_67.input_bit_register_67 = int(True)
+                    #     con.send(input_67)
                     samplingState = "waiting for sync high"
                     robot_output[0] = samplingState
             elif samplingState == "waiting for sync high":
                 if (do % 2) == 1:
                     previous_t = 0.0
+
                     samplingState = "collecting data"
                     robot_output[0] = samplingState
             if samplingState == "collecting data":
                 if (do % 2) == 0:
                     samplingState = "waiting for sync high"
+                    # if not recording_sensor_reference:
+                    #     input_67.input_bit_register_67 = int(True)
+                    #     con.send(input_67)
                     # END OF CYCLE MARKER
                     for i in range(num_arduinos):
                         with open(f"{error_logs_filename}{i}.csv", "a+") as f:
                             f.write("-\n")
                         with open(f"{sensor_data_filename}{i}.csv", "a+") as f:
                             f.write("-\n")
-
+            # if not recording_sensor_reference:
+            #     input_67.input_bit_register_67 = int(False)
+            #     con.send(input_67)
             datapt = np.append(q, qd)
             datapt = np.array(datapt).transpose()
             datapt = datapt.reshape(12, 1)
@@ -717,6 +755,8 @@ def new_sensor_reference():
     global sensor_ref_array_to_write
     global recording_sensor_reference
     sensor_ref_array_to_write = []
+    input_67.input_bit_register_67 = int(False)
+    con.send(input_67)
     # Get state for all sensors from one feed
     recording_sensor_reference = True
     get_state = Thread(target=reference_sensor_robotcom)
@@ -817,6 +857,8 @@ def reference_sensor_reader(arduino_board_port, arduino_board_index):
 
                 if samplingState == "waiting for sync low":
                     if (do % 2) == 0:
+                        input_67.input_bit_register_67 = int(True)
+                        con.send(input_67)
                         samplingState = "waiting for sync high"
                         status = samplingState
                         arduino_output_list[arduino_board_index][0][0] = status
@@ -833,21 +875,36 @@ def reference_sensor_reader(arduino_board_port, arduino_board_index):
                         # if num_cycles_done < NUM_REF_CYCLES - 1:
                         # num_cycles_done += 1
                         # else:
+                        input_67.input_bit_register_67 = int(True)
+                        con.send(input_67)
                         samplingState = "finished"
                         break
+                    input_67.input_bit_register_67 = int(False)
+                    con.send(input_67)
                     t_sample = normalized_t.copy()
                     ser.write(str.encode("\n"))
                     txt_array = ser.readline().decode("utf-8").strip()
                     txt_array = txt_array.split(",")
-                    distance0 = int(txt_array[1])
+                    try:
+                        distance0 = int(txt_array[1])
+                    except IndexError as err:
+                        print(err, txt_array)
+                        print(arduino_board_port + "ERROR")
                     distance1 = int(txt_array[4])
                     # Handle weird signals
                     if txt_array[2] in ["2", "4", "7"]:
                         # Distance failure
+                        print(
+                            f"Error code {txt_array[2]}, sensor 0{arduino_board_index}, {distance0}"
+                        )
                         distance0 = SAFETY_DISTANCE
+
                     if txt_array[5] in ["2", "4", "7"]:
                         # Distance failure
                         distance1 = SAFETY_DISTANCE
+                        print(
+                            f"Error code {txt_array[5]}, sensor 0{arduino_board_index}, {distance1}"
+                        )
                     if distance0 > SAFETY_DISTANCE:
                         distance0 = SAFETY_DISTANCE
                     if distance1 > SAFETY_DISTANCE:
@@ -861,7 +918,7 @@ def reference_sensor_reader(arduino_board_port, arduino_board_index):
                     arduino_output_list[arduino_board_index][0][1] = line
                     arduino_output_list[arduino_board_index][1][1] = line
                     # PROBLEM: prehitro pobiranje podatkov ga ubije
-                    time.sleep(0.002)
+                    time.sleep(0.005)
 
             print(f"Time elapsed: {i}s")
             if samplingState == "finished":
@@ -1023,7 +1080,27 @@ def adapt_reference(current_ref_array, arduino_board_number):
     global error_display
     w_new = 0.5
     w_old = 1 - w_new
+    arr0 = list(current_ref_array[0])
+    arr1 = list(current_ref_array[1])
+    arr2 = list(current_ref_array[2])
+    # Remove measurements with error codes from adaptation?
+    for idx, reading in enumerate(arr1):
+        if reading == 1000:
+            arr0.pop(idx)
+            arr1.pop(idx)
+            arr2.pop(idx)
+    for idx, reading in enumerate(arr2):
+        if reading == 1000:
+            arr0.pop(idx)
+            arr1.pop(idx)
+            arr2.pop(idx)
 
+    current_ref_array = np.array(
+        [arr0, arr1, arr2],
+    )
+    if len(current_ref_array[0]) == 0:
+        print("Adapting empty array (error codes)")
+        return
     sensor_tref_rec = current_ref_array[0]
     sensor_ref_rec = current_ref_array[1:3]
 
@@ -1097,7 +1174,7 @@ def check_sensors(point, t_sample_start, error_queue, arduino_board_number):
         for i in range(2):
             distance = point[i]
             ref_distance = interp_ref_point[i]
-            error = (ref_distance - distance) / ref_distance
+            error = (ref_distance - distance) / (ref_distance + 0.0001)
             sensor_error_array[i][0] = error
             error_display[arduino_board_number][i + 1].append(error)
         # sensor_error_array = np.transpose(np.array([[(abs(distance -

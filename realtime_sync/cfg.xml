@@ -17,8 +17,14 @@
 	<recipe key="in66">
         <field name="input_bit_register_66" type="BOOL"/>
 	</recipe>
+	<recipe key="in67">
+        <field name="input_bit_register_67" type="BOOL"/>
+	</recipe>
 	<recipe key="speed_int">
         <field name="input_int_register_25" type="INT32"/>
+	</recipe>
+	<recipe key="con_out">
+		<field name="standard_digital_output" type="UINT8"/>
 	</recipe>
 	<recipe key="forces">
 		<field name="ft_raw_wrench" type="VECTOR6D"/>
