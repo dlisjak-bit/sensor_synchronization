@@ -22,6 +22,8 @@ from matplotlib.animation import FuncAnimation
 sys.path.append("..")
 
 # TODO: ne adaptira nazaj na visok speed
+# TODO: TCP ignorira ob dvigovanju
+# TODO: adaptiranje za vsak senzor posebej
 
 # --------------GUIDE----------------------------------------
 # before running test_2.urp, run initialize variables.py
@@ -34,6 +36,7 @@ sys.path.append("..")
 # stop: halts the process, must be restarted manually
 # speed <value (1-100)>: percentage speed slider to be set
 # exit: terminates program, robot continues operation
+
 
 # system variables
 updateFrequency = 125
@@ -282,7 +285,12 @@ def interp_nd(x, rx, ry):
     # breakpoint()
     data = np.zeros((len(ry), len(x)))
     for i in range(len(ry)):
-        data[i] = np.interp(x, rx, ry[i])
+        # print(x, rx, ry[i])
+        try:
+            data[i] = np.interp(x, rx, ry[i])
+        except ValueError as err:
+            print(x, rx, ry[i])
+            print(err)
     return data
 
 
@@ -897,11 +905,11 @@ def reference_sensor_reader(arduino_board_port, arduino_board_index):
                         print(
                             f"Error code {txt_array[2]}, sensor 0{arduino_board_index}, {distance0}"
                         )
-                        distance0 = SAFETY_DISTANCE
+                        distance0 = SAFETY_DISTANCE + 1
 
                     if txt_array[5] in ["2", "4", "7"]:
                         # Distance failure
-                        distance1 = SAFETY_DISTANCE
+                        distance1 = SAFETY_DISTANCE + 1
                         print(
                             f"Error code {txt_array[5]}, sensor 0{arduino_board_index}, {distance1}"
                         )
@@ -976,13 +984,13 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                         #     # )
                         if txt_array[2] in ["2", "4", "7"]:
                             # Distance failure
-                            distance0 = SAFETY_DISTANCE
+                            distance0 = SAFETY_DISTANCE + 1
                         if txt_array[5] in ["2", "4", "7"]:
                             # Distance failure
-                            distance1 = SAFETY_DISTANCE
-                        if distance0 > SAFETY_DISTANCE:
+                            distance1 = SAFETY_DISTANCE + 1
+                        if distance0 > SAFETY_DISTANCE + 1:
                             distance0 = SAFETY_DISTANCE
-                        if distance1 > SAFETY_DISTANCE:
+                        if distance1 > SAFETY_DISTANCE + 1:
                             distance1 = SAFETY_DISTANCE
                         point = np.transpose(
                             [float(distance0), float(distance1)]
@@ -1080,70 +1088,117 @@ def adapt_reference(current_ref_array, arduino_board_number):
     global error_display
     w_new = 0.5
     w_old = 1 - w_new
-    arr0 = list(current_ref_array[0])
-    arr1 = list(current_ref_array[1])
-    arr2 = list(current_ref_array[2])
+    arr0 = list(current_ref_array[0])  # time 0
+    arr1 = list(current_ref_array[1])  # Readings 0
+    arr2 = list(current_ref_array[0])
+    arr3 = list(current_ref_array[2])  # readings 1
+    subdivisions = 1000
+    t_start = int(current_ref_array[0][0] * subdivisions) / subdivisions
+    t_end = int(current_ref_array[0][-1] * subdivisions) / subdivisions
     # Remove measurements with error codes from adaptation?
     for idx, reading in enumerate(arr1):
-        if reading == 1000:
-            arr0.pop(idx)
+        if reading == 1001:
             arr1.pop(idx)
-            arr2.pop(idx)
+            arr0.pop(idx)
     for idx, reading in enumerate(arr2):
-        if reading == 1000:
-            arr0.pop(idx)
-            arr1.pop(idx)
+        if reading == 1001:
+            arr3.pop(idx)
             arr2.pop(idx)
-
-    current_ref_array = np.array(
-        [arr0, arr1, arr2],
-    )
-    if len(current_ref_array[0]) == 0:
-        print("Adapting empty array (error codes)")
-        return
-    sensor_tref_rec = current_ref_array[0]
-    sensor_ref_rec = current_ref_array[1:3]
-
-    subdivisions = 1000
-
-    # Round end and start times
-    t_start = int(sensor_tref_rec[0] * subdivisions) / subdivisions
-    t_end = int(sensor_tref_rec[-1] * subdivisions) / subdivisions
-
-    # Find index of where to do weighted average
-    start_index = max(int(t_start * subdivisions) - 1, 0)
-    end_index = min(
-        int(t_end * subdivisions) - 1, int(T_MAX * subdivisions - 2)
-    )
-    # print(f"start index:{start_index}, end index: {end_index}")
-
-    # Interpolate recorded reference
-    x = np.arange(0, t_end * subdivisions) * 0.001 + t_start
-    x = []
-    for i in range(int(t_end * subdivisions - t_start * subdivisions)):
-        x.append(i * 1 / subdivisions + t_start)
-    x = np.array(x)
-    subdivided = interp_nd(
-        x,
-        sensor_tref_rec[0 : len(sensor_tref_rec)],
-        sensor_ref_rec[:, 0 : len(sensor_tref_rec)],
-    )
-
-    with open(
-        f"alldata/adapted_reference{arduino_board_number}.csv", "a"
-    ) as f:
-        for i in range(start_index, end_index - 1):
-            for j in range(1, 3):
-                old_weighted = (
-                    w_old * sensor_ref_array[arduino_board_number][j][i]
-                )
-                new_weighted = w_new * subdivided[j - 1][i - start_index]
-                sensor_ref_array[arduino_board_number][j][i] = (
-                    old_weighted + new_weighted
-                )
-            f.write(
-                f"{sensor_ref_array[arduino_board_number][0][i]},{sensor_ref_array[arduino_board_number][1][i]},{sensor_ref_array[arduino_board_number][2][i]}\n"
+    del current_ref_array
+    current_ref_array = [
+        arr0,
+        arr1,
+        arr2,
+        arr3,
+    ]
+    for i in [0, 2]:
+        if len(current_ref_array[i + 1]) <= 1:
+            continue
+        if len(current_ref_array[i]) <= 1:
+            continue
+        sensor_number = 0 if i == 0 else 1
+        subdivisions = 1000
+        # Round end and start times
+        # t_start = int(current_ref_array[i][0] * subdivisions) / subdivisions
+        # t_end = int(current_ref_array[i][-1] * subdivisions) / subdivisions
+        # Find index of where to do weighted average
+        start_index = max(int(t_start * subdivisions) - 1, 0)
+        end_index = min(
+            int(t_end * subdivisions) - 1, int(T_MAX * subdivisions - 2)
+        )
+        # Interpolate recorded reference
+        x = np.arange(0, t_end * subdivisions) * 0.001 + t_start
+        x = []
+        for j in range(int(t_end * subdivisions - t_start * subdivisions)):
+            x.append(j * 1 / subdivisions + t_start)
+        x = np.array(x)
+        ref_with_zeroes = np.array(
+            [current_ref_array[i + 1], np.zeros(len(current_ref_array[i + 1]))]
+        )
+        # sensor_tref_rec = refe
+        subdivided = np.interp(
+            x,
+            current_ref_array[i],
+            current_ref_array[i + 1],
+        )
+        for j in range(start_index, end_index - 1):
+            old_weighted = (
+                w_old
+                * sensor_ref_array[arduino_board_number][sensor_number][j]
             )
+            new_weighted = w_new * subdivided[j - start_index]
+            sensor_ref_array[arduino_board_number][sensor_number][j] = (
+                old_weighted + new_weighted
+            )
+
+    # NEW VERSION --------^^^^^
+
+    # if len(current_ref_array[0]) == 0:
+    #     print("Adapting empty array (error codes)")
+    #     return
+    # sensor_tref_rec = current_ref_array[0]
+    # sensor_ref_rec = current_ref_array[1:3]
+
+    # subdivisions = 1000
+
+    # # Round end and start times
+    # t_start = int(sensor_tref_rec[0] * subdivisions) / subdivisions
+    # t_end = int(sensor_tref_rec[-1] * subdivisions) / subdivisions
+
+    # # Find index of where to do weighted average
+    # start_index = max(int(t_start * subdivisions) - 1, 0)
+    # end_index = min(
+    #     int(t_end * subdivisions) - 1, int(T_MAX * subdivisions - 2)
+    # )
+    # # print(f"start index:{start_index}, end index: {end_index}")
+
+    # # Interpolate recorded reference
+    # x = np.arange(0, t_end * subdivisions) * 0.001 + t_start
+    # x = []
+    # for i in range(int(t_end * subdivisions - t_start * subdivisions)):
+    #     x.append(i * 1 / subdivisions + t_start)
+    # x = np.array(x)
+    # subdivided = interp_nd(
+    #     x,
+    #     sensor_tref_rec[0 : len(sensor_tref_rec)],
+    #     sensor_ref_rec[:, 0 : len(sensor_tref_rec)],
+    # )
+
+    # with open(
+    #     f"alldata/adapted_reference{arduino_board_number}.csv", "a"
+    # ) as f:
+    #     for i in range(start_index, end_index - 1):
+    #         for j in range(1, 3):
+    #             old_weighted = (
+    #                 w_old * sensor_ref_array[arduino_board_number][j][i]
+    #             )
+    #             new_weighted = w_new * subdivided[j - 1][i - start_index]
+    #             sensor_ref_array[arduino_board_number][j][i] = (
+    #                 old_weighted + new_weighted
+    #             )
+    #         f.write(
+    #             f"{sensor_ref_array[arduino_board_number][0][i]},{sensor_ref_array[arduino_board_number][1][i]},{sensor_ref_array[arduino_board_number][2][i]}\n"
+    #         )
 
     for num_arduino in range(num_arduinos):
         with open(f"alldata/error_logs{num_arduino}.csv", "a") as f:
@@ -1249,7 +1304,7 @@ def sensor_error_queue(
                 print(
                     f"Warning: something is wrong near sensor {i}, board {arduino_board_number}"
                 )
-                print(point)
+                print(point, interp_ref_point, min(err))
         elif (
             max(err) < 0.3 and reduced_speed[arduino_board_number][i]
         ) or inactive_sensors[arduino_board_number][i]:

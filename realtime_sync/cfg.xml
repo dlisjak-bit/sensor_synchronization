@@ -10,6 +10,7 @@
 		<field name="ft_raw_wrench" type="VECTOR6D"/>
 		<field name="target_current" type="VECTOR6D"/>
 		<field name="actual_current" type="VECTOR6D"/>
+		<field name="target_TCP_speed" type="VECTOR6D"/>
 	</recipe>
 	<recipe key="in65">
         <field name="input_bit_register_65" type="BOOL"/>
