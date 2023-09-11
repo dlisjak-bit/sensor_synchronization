@@ -21,6 +21,9 @@
 	<recipe key="in67">
         <field name="input_bit_register_67" type="BOOL"/>
 	</recipe>
+	<recipe key="in68">
+		<field name="input_bit_register_68" type="BOOL"/>
+	</recipe>
 	<recipe key="speed_int">
         <field name="input_int_register_25" type="INT32"/>
 	</recipe>
