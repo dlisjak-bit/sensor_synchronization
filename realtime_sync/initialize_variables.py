@@ -13,7 +13,8 @@ import rtde.rtde as rtde
 import rtde.rtde_config as rtde_config
 
 
-ROBOT_HOST = "192.168.65.244"  # actual robot
+ROBOT_MAIN = "192.168.65.244"  # actual robot
+ROBOT_SIDE = "192.168.65.243"
 # ROBOT_HOST = '192.168.56.102'   # virtual robot
 ROBOT_PORT = 30004
 robot_speed = 100
@@ -21,13 +22,20 @@ updateFrequency = 125
 
 # connect to the robot
 global con
-con = rtde.RTDE(ROBOT_HOST, ROBOT_PORT)
+
+con = rtde.RTDE(ROBOT_MAIN, ROBOT_PORT)
+con_side = rtde.RTDE(ROBOT_SIDE, ROBOT_PORT)
 con.connect()
+con_side.connect()
 
 # test connection (get controller version)
 global cv
 cv = con.get_controller_version()
-print(f"controller version: {cv[0]}.{cv[1]}.{cv[2]}.{cv[3]}")
+print(f"controller main version: {cv[0]}.{cv[1]}.{cv[2]}.{cv[3]}")
+cv_side = con_side.get_controller_version()
+print(
+    f"controller side version: {cv_side[0]}.{cv_side[1]}.{cv_side[2]}.{cv_side[3]}"
+)
 
 # subscribe to the desired data
 global config
