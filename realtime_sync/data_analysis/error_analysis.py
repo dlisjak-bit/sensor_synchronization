@@ -22,7 +22,7 @@ fig.tight_layout(pad=3)
 cax = fig.add_axes([0.92, 0.15, 0.02, 0.7])  # Position of the colorbar
 
 for i in range(4):
-    with open(f"alldata/error_logs{i}.csv", "r") as file:
+    with open(f"alldata/2_robot_experiment/error_logs{i}.csv", "r") as file:
         lines = file.readlines()
 
     # Initialize lists to store data
@@ -38,6 +38,8 @@ for i in range(4):
         if line.strip() == "-":
             # New cycle detected
             current_cycle_number += 1
+            if current_cycle_number == 21:
+                break
         else:
             # Parse the line and extract relevant values
             values = line.strip().split(",")
@@ -49,7 +51,7 @@ for i in range(4):
 
     # Convert lists to NumPy arrays
     cycle_number = np.array(cycle_number)
-    time_in_cycle = np.array(time_in_cycle)
+    time_in_cycle = np.array(time_in_cycle) / np.max(time_in_cycle) * 100
     relative_errors0 = np.array(relative_errors0)
     relative_errors0_avg = np.array(relative_errors0)
     relative_errors1 = np.array(relative_errors1)
@@ -85,7 +87,7 @@ for i in range(4):
         vmax=1,
     )
     ax[i, 0].set(
-        xlabel="Time in Cycle",
+        xlabel="Percentage of Cycle",
         ylabel="Cycle Number",
         # yticks=np.arange(1, max(cycle_number), 5),
     )
@@ -102,7 +104,7 @@ for i in range(4):
         vmax=1,
     )
     ax[i, 1].set(
-        xlabel="Time in Cycle",
+        xlabel="Percentage of Cycle",
         ylabel="Cycle Number",
         # yticks=np.arange(1, max(cycle_number), 5),
     )
@@ -142,4 +144,4 @@ cbar.set_ticks([-1, 0, 1])  # Set the tick positions
 cbar.set_ticklabels(["-1", "0", "1"])  # Set the tick label
 
 
-plt.savefig("data_analysis/analysis.png", dpi=400)
+plt.savefig("alldata/2_robot_experiment/analysis.png", dpi=400)

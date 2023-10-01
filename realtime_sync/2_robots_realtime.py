@@ -123,7 +123,7 @@ for i in range(num_arduinos):
         speed_display[i].append([])
 sensor_measurement_display = np.array([])
 
-INITIAL_REFERENCE_COUNT = 9
+INITIAL_REFERENCE_COUNT = 0
 
 
 # Divide threads and start.
@@ -178,27 +178,27 @@ def data_processor_thread():
     robot_thread.start()
 
     # Start sensors
-    if record_reference:
-        # send_command("speed 20")
-        sensor_reference_file = new_sensor_reference()
-        send_command("speed 100")
-        print("Recorded all sensor reference files.")
-    sensor_ref_array = read_sensor_reference(sensor_reference_file)
+    # if record_reference:
+    #     # send_command("speed 20")
+    #     sensor_reference_file = new_sensor_reference()
+    #     send_command("speed 100")
+    #     print("Recorded all sensor reference files.")
+    # sensor_ref_array = read_sensor_reference(sensor_reference_file)
 
-    # Interpolate each arduino's sensor reference to 1000Hz
-    new_ref_file = sensor_ref_interp(sensor_ref_array)
-    sensor_ref_array = read_sensor_reference(new_ref_file)
-    print("Interpolated new sensor reference")
+    # # Interpolate each arduino's sensor reference to 1000Hz
+    # new_ref_file = sensor_ref_interp(sensor_ref_array)
+    # sensor_ref_array = read_sensor_reference(new_ref_file)
+    # print("Interpolated new sensor reference")
 
-    # Start output thread
-    t0 = Thread(target=output_thread)
-    t0.start()
+    # # Start output thread
+    # t0 = Thread(target=output_thread)
+    # t0.start()
 
-    # Start Sensors
-    t3 = Thread(target=sensor_thread)
-    t3.start()
+    # # Start Sensors
+    # t3 = Thread(target=sensor_thread)
+    # t3.start()
 
-    sensors_active = True
+    # sensors_active = True
     # Start taking input - needs work if its at the same time as output
     # t2 = Thread(target=take_input_thread)
     # t2.start()
@@ -517,6 +517,7 @@ def new_robot_reference():
                 elif samplingState == "waiting for sync high":
                     if (do % 2) == 1:
                         print("cycle start detected")
+                        send_command("start side robot")
                         samplingState = "collecting data"
                         robot_output[0] = samplingState
                 if samplingState == "collecting data":
