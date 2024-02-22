@@ -3,7 +3,7 @@ import serial
 from serial.serialutil import *
 
 # Najdi serial
-ARDUINO_BOARD_PORT_ARRAY = ["/dev/tty.usbserial-1423130", "/dev/tty.usbserial-1423140"]
+ARDUINO_BOARD_PORT_ARRAY = ["/dev/tty.usbserial-1423110"]
 ARDUINO_BAUDRATE = 115200
 num_arduinos = len(ARDUINO_BOARD_PORT_ARRAY)
 
@@ -25,7 +25,7 @@ def sensor_thread():
 
 
 def singleboard_datareader(arduino_board_port, arduino_board_number):
-    with open(f"alldata/sensor_data_{arduino_board_number}.csv", "a") as f:
+    with open(f"alldata_attempt2/0test_data{arduino_board_number}.csv", "a") as f:
         with serial.Serial() as ser:
             ser.baudrate = ARDUINO_BAUDRATE
             ser.port = arduino_board_port
@@ -41,19 +41,8 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                     for k in range(1):
                         ser.write(str.encode("\n"))
                         txt_array = ser.readline().decode("utf-8").strip()
-                        txt_array = txt_array.split(",")
-                        distance1 = txt_array[1]
-                        distance2 = txt_array[4]
-                        # Obdelava slabih meritev: naredi, kar želiš - trenutno samo vse da na 2000, zase še testiram
-                        if txt_array[2] in ["2", "4", "7"]:
-                            if int(distance1) > 200 or int(distance1) < 200:
-                                distance1 = 2000
-                        if txt_array[5] in ["2", "4", "7"]:
-                            if int(distance2) > 200 or int(distance2) < 200:
-                                distance2 = 2000
-                        # Do stuff with data
-                        f.write(f"{distance1},{distance2}\n")
-                        print(f"{distance1},{distance2}\n")
+                        print(txt_array)
+                        f.write(txt_array + "\n")
 
 
 if __name__ == "__main__":
