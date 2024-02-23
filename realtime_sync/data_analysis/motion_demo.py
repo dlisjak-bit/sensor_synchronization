@@ -1,7 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-with open("alldata/motion_demo/robot_reference.csv", "r") as file:
+ref_file = "../robot_reference.csv"
+with open(ref_file, "r") as file:
     lines = file.readlines()
 
 joint_positions = []
@@ -19,14 +20,14 @@ for i in range(6):
     plt.plot(time, np.array(joint_positions)[:, i], label=f"Joint {i}")
 
 plt.legend()
-plt.savefig("alldata/motion_demo/robot_reference.png")
+plt.savefig("robot_reference.png")
 
 plt.clf()
 
 for i in range(6):
     plt.plot(time, np.array(joint_velocities)[:, i], label=f"Joint {i}")
 plt.legend()
-plt.savefig("alldata/motion_demo/robot_reference_velocities.png")
+plt.savefig("robot_reference_velocities.png")
 
 # plt.show()
 
@@ -62,9 +63,7 @@ def read_robot_reference(file):
     with open(file, "r") as f:
         f.readline()  # throw away the header line
         for line in f:
-            data.append(
-                [float(x) for x in line.strip().split(",")]
-            )  # read csv
+            data.append([float(x) for x in line.strip().split(",")])  # read csv
     data = np.array(data).transpose()  # transpose matrix
     # separate data:
     return (
@@ -76,9 +75,7 @@ def read_robot_reference(file):
     )  # time points array ([time]-[start time]), 12 arrays (q0 do qd5) , array tsf, array do
 
 
-tref, ref, forces, pct100, do100 = read_robot_reference(
-    "alldata/motion_demo/robot_reference.csv"
-)
+tref, ref, forces, pct100, do100 = read_robot_reference(ref_file)
 print(ref)
 
 
@@ -125,12 +122,10 @@ plt.plot(time, d[0][1:], label="Euclidean distance - position")
 d, p = (get_euclidean(ref[6:, :] - datapt[6:]), tref)
 plt.plot(time, d[0][1:], label="Euclidean distance - speed")
 d, p = (get_euclidean(ref[:, :] - datapt[:]), tref)
-plt.plot(
-    time, d[0][1:] + d[0][1:], label="Euclidean distance - position + speed"
-)
+plt.plot(time, d[0][1:] + d[0][1:], label="Euclidean distance - position + speed")
 plt.legend()
 
-plt.savefig("alldata/motion_demo/robot_reference_euclidean.png")
+plt.savefig("robot_reference_euclidean.png")
 
 # clear previous plot
 plt.clf()

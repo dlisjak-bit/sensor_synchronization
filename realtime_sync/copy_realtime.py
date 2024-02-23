@@ -1293,7 +1293,7 @@ def check_sensors(point, t_sample_start, error_queue, arduino_board_number):
 
 
 def calculate_error_threshold(distance, tcp_lifting=1):
-    reduced_percentage = 80 - 80 / 600 * distance
+    reduced_percentage = 80 - 80 / 300 * distance
     if 60 < reduced_percentage <= 80:
         return 80 * tcp_lifting
     elif 40 < reduced_percentage <= 60:
