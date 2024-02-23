@@ -11,6 +11,7 @@ import rtde.rtde as rtde
 import rtde.rtde_config as rtde_config
 from threading import Thread
 import serial
+import random
 
 # from serial.serialutil import *
 
@@ -34,6 +35,8 @@ sys.path.append("..")
 # stop: halts the process, must be restarted manually
 # speed <value (1-100)>: percentage speed slider to be set
 # exit: terminates program, robot continues operation
+# --------------IMPORTANT---------------------------
+# Cycle length must be at least 10s (hardcoded variables :) )
 
 # system variables
 updateFrequency = 125
@@ -48,7 +51,7 @@ interp_sensor_data_filename = "alldata_attempt2/interpolated_sensors"
 error_logs_filename = "alldata_attempt2/error_logs"
 abs_error_logs_filename = "alldata_attempt2/abs_error_logs"
 adapted_reference_filename = "alldata_attempt2/adapted_reference"
-
+cycle_number = 0
 
 SAFETY_DISTANCE = 1000
 
@@ -68,6 +71,7 @@ NUM_REF_CYCLES = 1
 collision = False
 sensors_active = False
 REDUCED_SPEED_PERCENTAGE = 0
+adapt_reference_time = 3
 
 
 argumentList = sys.argv[1:]
@@ -322,7 +326,13 @@ def get_normalized_t(
 
     # Find a more precise reference time estimate
     d, p = get_distance(subdivided - pt)
-    return samplepts[p[0][0]]
+    calc_norm_t = samplepts[p[0][0]]
+    # avoid singularity
+    if calc_norm_t < previous_t:
+        calc_norm_t = previous_t
+    if calc_norm_t == 0:
+        calc_norm_t = 0.001
+    return calc_norm_t
 
 
 def interpolate_forces(tref, forces):
@@ -515,7 +525,8 @@ def robot_input_reader(tref, ref, interp_forces):
     collision_time = 0.0
     keep_running = True
     previous_t = 0.0
-    cycle_number = 0
+
+    global cycle_number
     print("Receiving data from robot.")
     samplingState = "waiting for sync low"
     while keep_running:
@@ -580,7 +591,7 @@ def robot_input_reader(tref, ref, interp_forces):
                     if not collision:
                         print("COLLISION DETECTED !!!!!!!!!!!!!!!!")
                     collision = True
-                    collision_time = normalized_t.copy()
+                    collision_time = normalized_t
             if (
                 collision
                 and normalized_t - collision_time > 0.5
@@ -871,7 +882,7 @@ def reference_sensor_reader(arduino_board_port, arduino_board_index):
                         break
                     input_67.input_bit_register_67 = int(False)
                     con.send(input_67)
-                    t_sample = normalized_t.copy()
+                    t_sample = normalized_t
                     ser.write(str.encode("\n"))
                     txt_array = ser.readline().decode("utf-8").strip()
                     txt_array = txt_array.split(",")
@@ -962,6 +973,7 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
     ref_time = []
     ref_distance0 = []
     ref_distance1 = []
+    first_adaptation_in_cycle = True
     # collision = False
     with open(f"alldata_attempt2/sensor_data{arduino_board_number}.csv", "a") as f:
         with serial.Serial() as ser:
@@ -976,11 +988,12 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
             txt = (
                 ser.readline()
             )  # read line which just confirms that ranging is working
-            start_time = normalized_t.copy()
+            current_cycle_number = cycle_number
+            start_time = normalized_t
             while collect_data:  # sampling time
                 for j in range(50):
                     for k in range(1):
-                        t_sample_start = normalized_t.copy()
+                        t_sample_start = normalized_t
                         ser.write(str.encode("\n"))
                         txt_array = ser.readline().decode("utf-8").strip()
                         if (
@@ -1045,13 +1058,17 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                         )
                         # Write errors to file.
                         write_errors(arduino_board_number)
-
-                        if t_sample_start - start_time > 0.3:
+                        # add a random value between 0 and 0.5 to adapt_reference_time
+                        if (
+                            t_sample_start - start_time
+                            > adapt_reference_time + random.uniform(-0.5, 0.5)
+                        ):
                             # 2 normalized seconds have gone by: adapt reference
                             start_time = t_sample_start
                             current_ref_array = np.vstack(
                                 (ref_time, ref_distance0, ref_distance1)
                             )
+
                             # print("adapting")
                             if not collision:
                                 thread_adaptor = Thread(
@@ -1060,19 +1077,29 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                                         current_ref_array,
                                         arduino_board_number,
                                     ],
+                                    kwargs={
+                                        "first_adaptation_in_cycle": first_adaptation_in_cycle,
+                                    },
                                 )
                                 thread_adaptor.start()
                                 # print("adapting")
                                 # adapt_reference(current_ref_array, arduino_board_number)
                             else:
                                 print("Not adapting due to collision")
+
+                            # Reset variables:
                             ref_time = []
                             ref_distance0 = []
                             ref_distance1 = []
-                        if t_sample_start - start_time < -0.1:
+                            first_adaptation_in_cycle = False
+                        if t_sample_start - start_time < -5:
+                            print("new cycle")
+                            # Time must be shorter than wait in program
                             # We entered a new cycle - remove measurements from new cycle and adapt those from previous
-                            # print("NEW CYCLE ADAPT")
-                            start_time = t_sample_start
+                            # global vs local cycle counter
+                            # need to include the last index of the cycle into adaptation
+
+                            # Cut arrays to the end of the previous cycle
                             ref_time = ref_time[
                                 0 : np.where(ref_time == max(ref_time))[0][0] + 1
                             ]
@@ -1092,17 +1119,30 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                                         current_ref_array,
                                         arduino_board_number,
                                     ],
+                                    kwargs={
+                                        "end_of_cycle": True,
+                                        "first_adaptation_in_cycle": first_adaptation_in_cycle,
+                                    },
                                 )
                                 thread_adaptor.start()
                             ref_time = []
                             ref_distance0 = []
                             ref_distance1 = []
+                            # Reset variables:
+                            current_cycle_number = cycle_number
+                            start_time = t_sample_start
+                            first_adaptation_in_cycle = True
                             # Also empty out graph_output
                             for i in range(3):
                                 graph_output_list[arduino_board_number][i] = []
 
 
-def adapt_reference(current_ref_array, arduino_board_number):
+def adapt_reference(
+    current_ref_array,
+    arduino_board_number,
+    end_of_cycle=False,
+    first_adaptation_in_cycle=False,
+):
     """
     Adapt the reference sensor point array with appropriate weights on a
     given time interval if no collision occured
@@ -1114,6 +1154,29 @@ def adapt_reference(current_ref_array, arduino_board_number):
     arr0 = list(current_ref_array[0])
     arr1 = list(current_ref_array[1])
     arr2 = list(current_ref_array[2])
+
+    # If we just started a new cycle, we have to include the last point into
+    # adaptation to make sure the whole reference is adapted.
+    # Add a point at the end of the cycle to the reference array: same as
+    # The last one to ensure adaptation.
+
+    if end_of_cycle:
+        # Append the maximum refference time to arr0
+        arr0.append(sensor_ref_array[arduino_board_number][0][-1])
+        # print("Appending last point, ", sensor_ref_array[arduino_board_number][0][-1])
+        arr1.append(arr1[-1])
+        arr2.append(arr2[-1])
+    if first_adaptation_in_cycle:
+        # Append the minimum refference time to start of arr0, 1,2
+        arr0.insert(0, sensor_ref_array[arduino_board_number][0][0])
+        arr1.insert(0, arr1[0])
+        arr2.insert(0, arr2[0])
+        # print("Appending first point, ", sensor_ref_array[arduino_board_number][0][0])
+
+    # if not end_of_cycle and not first_adaptation_in_cycle:
+    #     # Insert an extra point at the start and end of the array to ensure adaptation
+    #     # Find that point in sensor_ref_array.
+
     # Remove measurements with error codes from adaptation?
     for idx, reading in enumerate(arr1):
         if reading == 1001:
@@ -1129,9 +1192,16 @@ def adapt_reference(current_ref_array, arduino_board_number):
     current_ref_array = np.array(
         [arr0, arr1, arr2],
     )
+
     if len(current_ref_array[0]) == 0:
         print("Adapting empty array (error codes)")
         return
+    # print(
+    #     "Length of adaptation array: ",
+    #     len(current_ref_array[0]),
+    #     "at board",
+    #     arduino_board_number,
+    # )
     sensor_tref_rec = current_ref_array[0]
     sensor_ref_rec = current_ref_array[1:3]
 
@@ -1157,7 +1227,13 @@ def adapt_reference(current_ref_array, arduino_board_number):
         sensor_tref_rec[0 : len(sensor_tref_rec)],
         sensor_ref_rec[:, 0 : len(sensor_tref_rec)],
     )
-
+    # print(
+    #     "Adaptation from, to: ",
+    #     start_index,
+    #     end_index,
+    #     "at board",
+    #     arduino_board_number,
+    # )
     with open(
         f"alldata_attempt2/adapted_reference{arduino_board_number}.csv", "a"
     ) as f:
@@ -1211,12 +1287,13 @@ def check_sensors(point, t_sample_start, error_queue, arduino_board_number):
         arduino_board_number,
         point,
         interp_ref_point,
+        t_sample_start,
     )
     return error_queue
 
 
 def calculate_error_threshold(distance, tcp_lifting=1):
-    reduced_percentage = 80 - 80 / 1000 * distance
+    reduced_percentage = 80 - 80 / 600 * distance
     if 60 < reduced_percentage <= 80:
         return 80 * tcp_lifting
     elif 40 < reduced_percentage <= 60:
@@ -1226,12 +1303,21 @@ def calculate_error_threshold(distance, tcp_lifting=1):
     return 20 * tcp_lifting
 
 
+def check_time_singularity(t_sample_start, arduino_board_number):
+    if t_sample_start == sensor_ref_array[arduino_board_number][0][-1]:
+        return True
+    if t_sample_start == sensor_ref_array[arduino_board_number][0][0]:
+        return True
+    return False
+
+
 def sensor_error_queue(
     error_queue,
     sensor_error_array,
     arduino_board_number,
     point,
     interp_ref_point,
+    t_sample_start,
 ):
     """Create error queue for sensor measurements. Slow down robot if necessary."""
     # print(error_queue.shape)
@@ -1259,9 +1345,11 @@ def sensor_error_queue(
             if (
                 not reduced_speed[arduino_board_number][i]
                 and not inactive_sensors[arduino_board_number][i]
+                and not check_time_singularity(t_sample_start, arduino_board_number)
             ) or (
                 reduced_percentage > REDUCED_SPEED_PERCENTAGE
                 and not inactive_sensors[arduino_board_number][i]
+                and not check_time_singularity(t_sample_start, arduino_board_number)
             ):
                 reduced_percentage = max(reduced_percentage, REDUCED_SPEED_PERCENTAGE)
                 # if tcp_speed[2] < 0:
