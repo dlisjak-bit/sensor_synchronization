@@ -51,7 +51,7 @@ adapted_reference_filename = "alldata/adapted_reference"
 SAFETY_DISTANCE = 1000
 
 ROBOT_MAIN = "192.168.65.244"  # actual robot
-ROBOT_SIDE = "192.168.65.243"  # side robot
+ROBOT_SIDE = "192.168.65.245"  # side robot
 # ROBOT_HOST = '192.168.56.102'   # virtual robot
 ROBOT_PORT = 30004
 
@@ -165,16 +165,12 @@ def data_processor_thread():
         send_command("speed 100")
         robot_reference_file = new_robot_reference()
         print("Using new reference motion ...")
-    tref, ref, forces, pct100, do100 = read_robot_reference(
-        robot_reference_file
-    )
+    tref, ref, forces, pct100, do100 = read_robot_reference(robot_reference_file)
     # print(forces)
     T_MAX = max(tref)
     interp_forces = interpolate_forces(tref, forces)
     # All interpolation of new sensor reference arrays will go to T_MAX
-    robot_thread = Thread(
-        target=robot_input_reader, args=[tref, ref, interp_forces]
-    )
+    robot_thread = Thread(target=robot_input_reader, args=[tref, ref, interp_forces])
     robot_thread.start()
 
     # Start sensors
@@ -386,25 +382,19 @@ def connect_robot():
     global input_65_side_names, input_65_side_types
     input_65_side_names, input_65_side_types = config.get_recipe("in65")
     global input_65_side
-    input_65_side = con_side.send_input_setup(
-        input_65_side_names, input_65_side_types
-    )
+    input_65_side = con_side.send_input_setup(input_65_side_names, input_65_side_types)
 
     # input bit for setting the speed of the side con
     global input_66_side_names, input_66_side_types
     input_66_side_names, input_66_side_types = config.get_recipe("in66")
     global input_66_side
-    input_66_side = con_side.send_input_setup(
-        input_66_side_names, input_66_side_types
-    )
+    input_66_side = con_side.send_input_setup(input_66_side_names, input_66_side_types)
 
     # input bit 68 for side con to signal that it is ready
     global input_68_side_names, input_68_side_types
     input_68_side_names, input_68_side_types = config.get_recipe("in68")
     global input_68_side
-    input_68_side = con_side.send_input_setup(
-        input_68_side_names, input_68_side_types
-    )
+    input_68_side = con_side.send_input_setup(input_68_side_names, input_68_side_types)
 
     # input bit for acknowledging cycle start
     global input_67_names, input_67_types
@@ -556,9 +546,7 @@ def read_robot_reference(file):
     with open(file, "r") as f:
         f.readline()  # throw away the header line
         for line in f:
-            data.append(
-                [float(x) for x in line.strip().split(",")]
-            )  # read csv
+            data.append([float(x) for x in line.strip().split(",")])  # read csv
     data = np.array(data).transpose()  # transpose matrix
     # separate data:
     return (
@@ -636,18 +624,14 @@ def robot_input_reader(tref, ref, interp_forces):
             datapt = np.append(q, qd)
             datapt = np.array(datapt).transpose()
             datapt = datapt.reshape(12, 1)
-            normalized_t = get_normalized_t(
-                ref, tref, datapt, previous_t, method
-            )
+            normalized_t = get_normalized_t(ref, tref, datapt, previous_t, method)
             # Collision detection. Only adaptation can set collision back to
             # False:
 
             target_c = np.array(state.target_current).astype(float)
             actual_c = np.array(state.actual_current).astype(float)
             if sensors_active:
-                if check_forces(
-                    target_c, actual_c, normalized_t, np.array(qd)
-                ):
+                if check_forces(target_c, actual_c, normalized_t, np.array(qd)):
                     if not collision:
                         print("COLLISION DETECTED !!!!!!!!!!!!!!!!")
                     collision = True
@@ -671,9 +655,7 @@ def robot_input_reader(tref, ref, interp_forces):
     con.disconnect()
 
 
-def check_forces(
-    interp_forces, rec_forces, normalized_t, target_joint_velocities
-):
+def check_forces(interp_forces, rec_forces, normalized_t, target_joint_velocities):
     dif = interp_forces - rec_forces
     sgn = -np.sign(target_joint_velocities)
     # če sta predznaka nasprotna, tega ne želimo
@@ -756,9 +738,7 @@ def send_command(user_input):
         else:
             print("Incorrect value. Speed must be between 1 and 100")
     elif user_input == "exit":
-        print(
-            "Terminating program realtime_sync.py ... Robot will continue operation."
-        )
+        print("Terminating program realtime_sync.py ... Robot will continue operation.")
         global keep_running
         keep_running = False
     elif user_input == "start side robot":
@@ -818,9 +798,7 @@ def graph_updater(i):
                 graph_output_list[num_arduino][0],
             )
             warning = "No warning"
-            ax.text(
-                warning.format(graph_output_list[num_arduino][num_sensor][-1])
-            )
+            ax.text(warning.format(graph_output_list[num_arduino][num_sensor][-1]))
 
 
 # Sensors
@@ -882,9 +860,7 @@ def read_sensor_reference(file):
         with open(file_i, "r") as f:
             f.readline()  # throw away the header line
             for line in f:
-                data.append(
-                    [float(x) for x in line.strip().split(",")]
-                )  # read csv
+                data.append([float(x) for x in line.strip().split(",")])  # read csv
         data = np.array(data).transpose()  # transpose matrix
         array.append(data)
         # separate data:
@@ -912,21 +888,15 @@ def reference_sensor_reader(arduino_board_port, arduino_board_index):
         # ser.parity = PARITY_EVEN
         # ser.stopbits = STOPBITS_ONE
         ser.open()
-        txt = (
-            ser.readline()
-        )  # read line which just confirms that ranging is working
+        txt = ser.readline()  # read line which just confirms that ranging is working
         print(txt)
-        txt = (
-            ser.readline()
-        )  # read line which just confirms that ranging is working
+        txt = ser.readline()  # read line which just confirms that ranging is working
         print(txt)
         samplingState = "waiting for sync low"
         status = "waiting for sync low"
         arduino_output_list[arduino_board_index][0][0] = status
         arduino_output_list[arduino_board_index][1][0] = status
-        print(
-            f"Sensor Reference Sampling started for board {arduino_board_port}"
-        )
+        print(f"Sensor Reference Sampling started for board {arduino_board_port}")
         num_cycles_done = 0
         for i in range(samplingTime):
             for j in range(50):
@@ -1013,9 +983,7 @@ def reference_sensor_reader(arduino_board_port, arduino_board_index):
                 )
                 break
         if samplingState != "finished":
-            print(
-                "WARNING: Program timed out before robot cycle was complete."
-            )
+            print("WARNING: Program timed out before robot cycle was complete.")
     # Sort array by time
     sensor_ref_array_to_write[arduino_board_index] = array
 
@@ -1070,9 +1038,7 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                             distance0 = SAFETY_DISTANCE
                         if distance1 > SAFETY_DISTANCE + 1:
                             distance1 = SAFETY_DISTANCE
-                        point = np.transpose(
-                            [float(distance0), float(distance1)]
-                        )
+                        point = np.transpose([float(distance0), float(distance1)])
                         # Append to file for graph output
                         graph_output_list[arduino_board_number][0].append(
                             t_sample_start
@@ -1126,16 +1092,13 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                             # print("NEW CYCLE ADAPT")
                             start_time = t_sample_start
                             ref_time = ref_time[
-                                0 : np.where(ref_time == max(ref_time))[0][0]
-                                + 1
+                                0 : np.where(ref_time == max(ref_time))[0][0] + 1
                             ]
                             ref_distance0 = ref_distance0[
-                                0 : np.where(ref_time == max(ref_time))[0][0]
-                                + 1
+                                0 : np.where(ref_time == max(ref_time))[0][0] + 1
                             ]
                             ref_distance1 = ref_distance1[
-                                0 : np.where(ref_time == max(ref_time))[0][0]
-                                + 1
+                                0 : np.where(ref_time == max(ref_time))[0][0] + 1
                             ]
                             current_ref_array = np.vstack(
                                 (ref_time, ref_distance0, ref_distance1)
@@ -1198,9 +1161,7 @@ def adapt_reference(current_ref_array, arduino_board_number):
 
     # Find index of where to do weighted average
     start_index = max(int(t_start * subdivisions) - 1, 0)
-    end_index = min(
-        int(t_end * subdivisions) - 1, int(T_MAX * subdivisions - 2)
-    )
+    end_index = min(int(t_end * subdivisions) - 1, int(T_MAX * subdivisions - 2))
     # print(f"start index:{start_index}, end index: {end_index}")
 
     # Interpolate recorded reference
@@ -1215,14 +1176,10 @@ def adapt_reference(current_ref_array, arduino_board_number):
         sensor_ref_rec[:, 0 : len(sensor_tref_rec)],
     )
 
-    with open(
-        f"alldata/adapted_reference{arduino_board_number}.csv", "a"
-    ) as f:
+    with open(f"alldata/adapted_reference{arduino_board_number}.csv", "a") as f:
         for i in range(start_index, end_index - 1):
             for j in range(1, 3):
-                old_weighted = (
-                    w_old * sensor_ref_array[arduino_board_number][j][i]
-                )
+                old_weighted = w_old * sensor_ref_array[arduino_board_number][j][i]
                 new_weighted = w_new * subdivided[j - 1][i - start_index]
                 sensor_ref_array[arduino_board_number][j][i] = (
                     old_weighted + new_weighted
@@ -1325,9 +1282,7 @@ def sensor_error_queue(
                 reduced_percentage > REDUCED_SPEED_PERCENTAGE
                 and not inactive_sensors[arduino_board_number][i]
             ):
-                reduced_percentage = max(
-                    reduced_percentage, REDUCED_SPEED_PERCENTAGE
-                )
+                reduced_percentage = max(reduced_percentage, REDUCED_SPEED_PERCENTAGE)
                 # if tcp_speed[2] < 0:
                 #     reduced_percentage = int(0.5 * reduced_percentage)
                 REDUCED_SPEED_PERCENTAGE = reduced_percentage
@@ -1355,9 +1310,7 @@ def sensor_error_queue(
                     if sensor:
                         reduced_speed_overall = True
             if not reduced_speed_overall:
-                speed_increase_thread = Thread(
-                    target=send_command, args=["speed 100"]
-                )
+                speed_increase_thread = Thread(target=send_command, args=["speed 100"])
                 speed_increase_thread.start()
                 REDUCED_SPEED_PERCENTAGE = 0
         # print(reduced_speed)

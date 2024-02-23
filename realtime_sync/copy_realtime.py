@@ -57,6 +57,7 @@ SAFETY_DISTANCE = 1000
 
 ROBOT_HOST = "192.168.65.244"  # actual robot
 # ROBOT_HOST = '192.168.56.102'   # virtual robot
+ROBOT_SIDE = "192.168.65.245"  # side robot
 ROBOT_PORT = 30004
 
 ARDUINO_BOARD_PORT_ARRAY = [
@@ -113,6 +114,7 @@ arduino_output_list = []
 for i in range(num_arduinos):
     arduino_output_list.append([[[""], [""]], [[""], [""]]])
 last_command = ""
+CON_ZASEDEN = False
 
 
 # Plotting logs
@@ -184,8 +186,12 @@ def data_processor_thread():
 
     # Start sensors
     if record_reference:
+        while CON_ZASEDEN:
+            do_nothing = 0
         send_command("speed 50")
         sensor_reference_file = new_sensor_reference()
+        while CON_ZASEDEN:
+            do_nothing = 0
         send_command("speed 100")
         print("Recorded all sensor reference files.")
     sensor_ref_array = read_sensor_reference(sensor_reference_file)
@@ -352,13 +358,20 @@ def interpolate_forces(tref, forces):
 def connect_robot():
     # connect to the robot
     global con
+    global con_side
     con = rtde.RTDE(ROBOT_HOST, ROBOT_PORT)
+    con_side = rtde.RTDE(ROBOT_SIDE, ROBOT_PORT)
     con.connect()
+    con_side.connect()
 
     # test connection (get controller version)
     global cv
     cv = con.get_controller_version()
-    print(f"controller version: {cv[0]}.{cv[1]}.{cv[2]}.{cv[3]}")
+    print(f"main controller version: {cv[0]}.{cv[1]}.{cv[2]}.{cv[3]}")
+    cv_side = con_side.get_controller_version()
+    print(
+        f"side controller version: {cv_side[0]}.{cv_side[1]}.{cv_side[2]}.{cv_side[3]}"
+    )
 
     # subscribe to the desired data
     global config
@@ -367,17 +380,36 @@ def connect_robot():
     state_names, state_types = config.get_recipe("state")
     con.send_output_setup(state_names, state_types, frequency=updateFrequency)
 
+    # subscribe to the desired data for side con
+    global state_side_names, state_side_types
+    state_side_names, state_side_types = config.get_recipe("state")
+    con_side.send_output_setup(
+        state_side_names, state_side_types, frequency=updateFrequency
+    )
+
     # input bit for halting the process
     global input_65_names, input_65_types
     input_65_names, input_65_types = config.get_recipe("in65")
     global input_65
     input_65 = con.send_input_setup(input_65_names, input_65_types)
 
+    # input bit for halting the process of the side con
+    global input_65_side_names, input_65_side_types
+    input_65_side_names, input_65_side_types = config.get_recipe("in65")
+    global input_65_side
+    input_65_side = con_side.send_input_setup(input_65_side_names, input_65_side_types)
+
     # input bit for setting the speed
     global input_66_names, input_66_types
     input_66_names, input_66_types = config.get_recipe("in66")
     global input_66
     input_66 = con.send_input_setup(input_66_names, input_66_types)
+
+    # input bit for setting the speed of the side con
+    global input_66_side_names, input_66_side_types
+    input_66_side_names, input_66_side_types = config.get_recipe("in66")
+    global input_66_side
+    input_66_side = con_side.send_input_setup(input_66_side_names, input_66_side_types)
 
     # input bit for acknowledging cycle start
     global input_67_names, input_67_types
@@ -391,8 +423,32 @@ def connect_robot():
     global speed_int
     speed_int = con.send_input_setup(speed_int_names, speed_int_types)
 
+    # input bit 68 for side con to signal that it is ready
+    global input_68_side_names, input_68_side_types
+    input_68_side_names, input_68_side_types = config.get_recipe("in68")
+    global input_68_side
+    input_68_side = con_side.send_input_setup(input_68_side_names, input_68_side_types)
+
+    # Input int for setting the speed of the side con
+    global speed_int_side_names, speed_int_side_types
+    speed_int_side_names, speed_int_side_types = config.get_recipe("speed_int")
+    global speed_int_side
+    speed_int_side = con_side.send_input_setup(
+        speed_int_side_names, speed_int_side_types
+    )
+
+    # # input bit for acknowledging cycle start
+    # global input_67_names, input_67_types
+    # input_67_names, input_67_types = config.get_recipe("in67")
+    # global input_67
+    # input_67 = con.send_input_setup(input_67_names, input_67_types)
+
     if not con.send_start():
-        print("failed to start data transfer")
+        print("failed to start data transfer 1")
+        sys.exit()
+
+    if not con_side.send_start():
+        print("failed to start data transfer 2")
         sys.exit()
 
     # setting default values so the program can run
@@ -407,6 +463,19 @@ def connect_robot():
 
     speed_int.input_int_register_25 = robot_speed
     con.send(speed_int)
+
+    # setting default side values so the program can run
+    input_65_side.input_bit_register_65 = int(False)
+    con_side.send(input_65_side)
+
+    input_66_side.input_bit_register_66 = int(False)
+    con_side.send(input_66_side)
+
+    input_68_side.input_bit_register_68 = int(False)
+    con_side.send(input_68_side)
+
+    speed_int_side.input_int_register_25 = robot_speed
+    con_side.send(speed_int_side)
 
 
 def new_robot_reference():
@@ -439,6 +508,7 @@ def new_robot_reference():
             for j in range(updateFrequency):
                 # receive the current state
                 state = con.receive()
+                state_side = con_side.receive()
 
                 if state is None:
                     print("connection lost, breaking")
@@ -462,6 +532,9 @@ def new_robot_reference():
                 elif samplingState == "waiting for sync high":
                     if (do % 2) == 1:
                         print("cycle start detected")
+                        while CON_ZASEDEN:
+                            do_nothing = 0
+                        send_command("start side robot")
                         samplingState = "collecting data"
                         robot_output[0] = samplingState
                 if samplingState == "collecting data":
@@ -525,14 +598,16 @@ def robot_input_reader(tref, ref, interp_forces):
     collision_time = 0.0
     keep_running = True
     previous_t = 0.0
-
+    reference_counter = 0
     global cycle_number
     print("Receiving data from robot.")
     samplingState = "waiting for sync low"
     while keep_running:
         for j in range(updateFrequency):
             # receive the current state
+
             state = con.receive()
+            state_side = con_side.receive()
             datapt = np.array([])
             # if some past data points are required in the future, maybe import queue
             t = state.timestamp
@@ -555,7 +630,10 @@ def robot_input_reader(tref, ref, interp_forces):
             elif samplingState == "waiting for sync high":
                 if (do % 2) == 1:
                     previous_t = 0.0
-
+                    if reference_counter >= 0:
+                        while CON_ZASEDEN:
+                            do_nothing = 0
+                        send_command("start side robot")
                     samplingState = "collecting data"
                     robot_output[0] = samplingState
             if samplingState == "collecting data":
@@ -661,6 +739,8 @@ def take_input_thread():
 
 
 def send_command(user_input):
+    global CON_ZASEDEN
+    CON_ZASEDEN = True
     global input_65
     global input_66
     global last_command
@@ -677,24 +757,37 @@ def send_command(user_input):
     elif split[0] == "speed":
         if (int(split[1]) < 101) & (int(split[1]) > 0):
             speed_int.input_int_register_25 = int(split[1])
+            speed_int_side.input_int_register_25 = int(split[1])
             con.send(speed_int)
+            con_side.send(speed_int_side)
             input_66.input_bit_register_66 = int(True)
-            # input_66.input_bit_register_66 = int(False)
+            input_66_side.input_bit_register_66 = int(True)
             con.send(input_66)
+            con_side.send(input_66_side)
             # time.sleep(1)
             # print(f"Speed set to {split[1]}%")
             # print(split[1])
             time.sleep(0.1)
             input_66.input_bit_register_66 = int(False)
+            input_66_side.input_bit_register_66 = int(False)
             con.send(input_66)
+            con_side.send(input_66_side)
         else:
             print("Incorrect value. Speed must be between 1 and 100")
     elif user_input == "exit":
         print("Terminating program realtime_sync.py ... Robot will continue operation.")
         global keep_running
         keep_running = False
+    elif user_input == "start side robot":
+        input_68_side.input_bit_register_68 = int(True)
+        con_side.send(input_68_side)
+        time.sleep(0.5)
+        input_68_side.input_bit_register_68 = int(False)
+        con_side.send(input_68_side)
     else:
         print("Incorrect command.")
+
+    CON_ZASEDEN = False
 
 
 def output_thread():
@@ -818,6 +911,7 @@ def reference_sensor_robotcom():
     global sensor_ref_state
     while recording_sensor_reference:
         sensor_ref_state = con.receive()
+        state_side = con_side.receive()
     return
 
 
@@ -867,6 +961,7 @@ def reference_sensor_reader(arduino_board_port, arduino_board_index):
                 elif samplingState == "waiting for sync high":
                     if (do % 2) == 1:
                         print("cycle start detected")
+                        send_command("start side robot")
                         samplingState = "collecting data"
                         status = samplingState
                         arduino_output_list[arduino_board_index][0][0] = status
@@ -1355,6 +1450,8 @@ def sensor_error_queue(
                 # if tcp_speed[2] < 0:
                 #     reduced_percentage = int(0.5 * reduced_percentage)
                 REDUCED_SPEED_PERCENTAGE = reduced_percentage
+                while CON_ZASEDEN:
+                    do_nothing = 0
                 speed_reduce_thread = Thread(
                     target=send_command,
                     args=[f"speed {100 - REDUCED_SPEED_PERCENTAGE}"],
@@ -1379,6 +1476,8 @@ def sensor_error_queue(
                     if sensor:
                         reduced_speed_overall = True
             if not reduced_speed_overall:
+                while CON_ZASEDEN:
+                    do_nothing = 0
                 speed_increase_thread = Thread(target=send_command, args=["speed 100"])
                 speed_increase_thread.start()
                 REDUCED_SPEED_PERCENTAGE = 0
