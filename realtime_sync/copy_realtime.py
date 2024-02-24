@@ -51,6 +51,7 @@ interp_sensor_data_filename = "alldata_attempt2/interpolated_sensors"
 error_logs_filename = "alldata_attempt2/error_logs"
 abs_error_logs_filename = "alldata_attempt2/abs_error_logs"
 adapted_reference_filename = "alldata_attempt2/adapted_reference"
+forces_filename = "alldata_attempt2/forces"
 cycle_number = 0
 
 SAFETY_DISTANCE = 1000
@@ -72,7 +73,7 @@ NUM_REF_CYCLES = 1
 collision = False
 sensors_active = False
 REDUCED_SPEED_PERCENTAGE = 0
-adapt_reference_time = 3
+adapt_reference_time = 300
 
 
 argumentList = sys.argv[1:]
@@ -692,6 +693,10 @@ def robot_input_reader(tref, ref, interp_forces):
 def check_forces(interp_forces, rec_forces, normalized_t, target_joint_velocities):
     dif = interp_forces - rec_forces
     sgn = -np.sign(target_joint_velocities)
+    with open(f"{forces_filename}.csv", "a+") as f:
+        f.write(
+            f"{normalized_t},{sgn[0] * dif[0]},{sgn[1] * dif[1]},{sgn[2] * dif[2]},{sgn[3] * dif[3]},{sgn[4] * dif[4]},{sgn[5] * dif[5]}\n"
+        )
     # če sta predznaka nasprotna, tega ne želimo
     if np.any(sgn * dif > 1.6):
         print("force in opposite direction")
@@ -1165,6 +1170,7 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                             )
 
                             # print("adapting")
+
                             if not collision:
                                 thread_adaptor = Thread(
                                     target=adapt_reference,
@@ -1177,8 +1183,8 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                                     },
                                 )
                                 thread_adaptor.start()
-                                # print("adapting")
-                                # adapt_reference(current_ref_array, arduino_board_number)
+                            # print("adapting")
+                            # adapt_reference(current_ref_array, arduino_board_number)
                             else:
                                 print("Not adapting due to collision")
 
@@ -1187,7 +1193,11 @@ def singleboard_datareader(arduino_board_port, arduino_board_number):
                             ref_distance0 = []
                             ref_distance1 = []
                             first_adaptation_in_cycle = False
-                        if t_sample_start - start_time < -5:
+                        # time under here is adjustable, should be longer for
+                        # longer programs to be more stable
+                        # if t_sample_start - start_time < -0.5:
+                        if current_cycle_number != cycle_number:
+                            current_cycle_number = cycle_number
                             print("new cycle")
                             # Time must be shorter than wait in program
                             # We entered a new cycle - remove measurements from new cycle and adapt those from previous
@@ -1388,7 +1398,7 @@ def check_sensors(point, t_sample_start, error_queue, arduino_board_number):
 
 
 def calculate_error_threshold(distance, tcp_lifting=1):
-    reduced_percentage = 80 - 80 / 300 * distance
+    reduced_percentage = 80 - 80 / 700 * distance
     if 60 < reduced_percentage <= 80:
         return 80 * tcp_lifting
     elif 40 < reduced_percentage <= 60:

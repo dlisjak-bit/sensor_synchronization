@@ -19,6 +19,14 @@ gradient = LinearSegmentedColormap.from_list(
         (1.000, (0.635, 0.000, 0.031)),
     ),
 )
+speed_gradient = LinearSegmentedColormap.from_list(
+    "my_gradient",
+    (
+        # Edit this gradient at https://eltos.github.io/gradient/#FFFFFF-00A211
+        (0.000, (1.000, 1.000, 1.000)),
+        (1.000, (0.000, 0.635, 0.067)),
+    ),
+)
 
 
 def getData(path, ch):
@@ -135,6 +143,9 @@ def processData(path, maxCycles=1e6):
             dataRange = [-500, 500]
             scaleLabel = "Sensor reading deviation from reference"
 
+        # filter speed gradient data:
+        filtered_data = data[np.all(data[:, :3] > 0, axis=1)]
+
         # plot graphs with error data
         for j in range(2):
             # ax[i, j].grid()
@@ -170,6 +181,14 @@ def processData(path, maxCycles=1e6):
                 vmax=dataRange[1],
                 linewidths=2,
             )
+            # ax[i, j].scatter(
+            #     (filtered_data[:, 0] % 1.0) * max_time,
+            #     filtered_data[:, 0] // 1,
+            #     marker="|",
+            #     s=25,  # marker size
+            #     c=filtered_data[:, 3] % 100,
+            #     cmap=speed_gradient,
+            # )
             if j == 0:
                 ax[i, j].set(  # xlabel="Percentage of Cycle",
                     ylabel="Cycle Number",
