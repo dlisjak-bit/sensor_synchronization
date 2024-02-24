@@ -216,7 +216,7 @@ if __name__ == "__main__":
         #  "../alldata/box_experiment/",
         #  "../alldata/conveyor_experiment/",
         #  "../alldata/conveyor_experiment_2/",
-        "alldata_attempt2/conveyor_duo1/"
+        "alldata_attempt2/"
     ]
     cycles = [1e6, 1e6, 1e6, 1e6, 1e6]
 
