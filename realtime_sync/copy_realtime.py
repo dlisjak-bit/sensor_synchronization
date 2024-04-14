@@ -1,9 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-# from perlin_noise import PerlinNoise
-# import timeit
-# import os
+
 import sys
 import getopt
 import time
@@ -12,10 +10,6 @@ import rtde.rtde_config as rtde_config
 from threading import Thread
 import serial
 import random
-
-# from serial.serialutil import *
-
-# from queue import Queue
 from rich.console import Console
 from rich.table import Table
 from matplotlib.animation import FuncAnimation
@@ -25,20 +19,18 @@ sys.path.append("..")
 # TODO: ne adaptira nazaj na visok speed
 
 # --------------GUIDE----------------------------------------
-# before running test_2.urp, run initialize variables.py
+# (special conditions) before running robot program, run initialize variables.py
 # run the script as python3 realtime_sync_arduino.py <-t> <-r>
 # optional flags:
 # -t: show calculated reference time in commandline (does not allow later user
 # input)
 # -r: record a reference loop before starting data collection
-# Type user input: <command>
+# Type user input: <command> # not in use anymore
 # stop: halts the process, must be restarted manually
 # speed <value (1-100)>: percentage speed slider to be set
 # exit: terminates program, robot continues operation
-# --------------IMPORTANT---------------------------
-# Cycle length must be at least 10s (hardcoded variables :) )
 
-# system variables
+
 updateFrequency = 125
 samplingTime = 120  # sampling time in seconds
 method = "euclidean"
@@ -156,11 +148,6 @@ def main():
     if show_time:
         t2.start()
 
-    # Wait so we get actual data:
-    time.sleep(30)
-    # Matplotlib graphs must be in main thread:
-    # graph_output()
-
 
 def data_processor_thread():
     global robot_reference_file
@@ -178,7 +165,6 @@ def data_processor_thread():
         robot_reference_file = new_robot_reference()
         print("Using new reference motion ...")
     tref, ref, forces, pct100, do100 = read_robot_reference(robot_reference_file)
-    # print(forces)
     T_MAX = max(tref)
     interp_forces = interpolate_forces(tref, forces)
     # All interpolation of new sensor reference arrays will go to T_MAX
@@ -187,12 +173,8 @@ def data_processor_thread():
 
     # Start sensors
     if record_reference:
-        # while CON_ZASEDEN:
-        #     do_nothing = 0
         send_command("speed 50")
         sensor_reference_file = new_sensor_reference()
-        # while CON_ZASEDEN:
-        #     do_nothing = 0
         send_command("speed 100")
         print("Recorded all sensor reference files.")
     sensor_ref_array = read_sensor_reference(sensor_reference_file)
@@ -212,6 +194,7 @@ def data_processor_thread():
 
     sensors_active = True
     # Start taking input - needs work if its at the same time as output
+    # Currently inactive
     # t2 = Thread(target=take_input_thread)
     # t2.start()
 
@@ -369,10 +352,6 @@ def connect_robot():
     global cv
     cv = con.get_controller_version()
     print(f"main controller version: {cv[0]}.{cv[1]}.{cv[2]}.{cv[3]}")
-    # cv_side = con_side.get_controller_version()
-    # print(
-    #     f"side controller version: {cv_side[0]}.{cv_side[1]}.{cv_side[2]}.{cv_side[3]}"
-    # )
 
     # subscribe to the desired data
     global config
@@ -381,36 +360,17 @@ def connect_robot():
     state_names, state_types = config.get_recipe("state")
     con.send_output_setup(state_names, state_types, frequency=updateFrequency)
 
-    # subscribe to the desired data for side con
-    # global state_side_names, state_side_types
-    # state_side_names, state_side_types = config.get_recipe("state")
-    # con_side.send_output_setup(
-    #     state_side_names, state_side_types, frequency=updateFrequency
-    # )
-
     # input bit for halting the process
     global input_65_names, input_65_types
     input_65_names, input_65_types = config.get_recipe("in65")
     global input_65
     input_65 = con.send_input_setup(input_65_names, input_65_types)
 
-    # # input bit for halting the process of the side con
-    # global input_65_side_names, input_65_side_types
-    # input_65_side_names, input_65_side_types = config.get_recipe("in65")
-    # global input_65_side
-    # input_65_side = con_side.send_input_setup(input_65_side_names, input_65_side_types)
-
     # input bit for setting the speed
     global input_66_names, input_66_types
     input_66_names, input_66_types = config.get_recipe("in66")
     global input_66
     input_66 = con.send_input_setup(input_66_names, input_66_types)
-
-    # input bit for setting the speed of the side con
-    # global input_66_side_names, input_66_side_types
-    # input_66_side_names, input_66_side_types = config.get_recipe("in66")
-    # global input_66_side
-    # input_66_side = con_side.send_input_setup(input_66_side_names, input_66_side_types)
 
     # input bit for acknowledging cycle start
     global input_67_names, input_67_types
@@ -423,26 +383,6 @@ def connect_robot():
     speed_int_names, speed_int_types = config.get_recipe("speed_int")
     global speed_int
     speed_int = con.send_input_setup(speed_int_names, speed_int_types)
-
-    # input bit 68 for side con to signal that it is ready
-    # global input_68_side_names, input_68_side_types
-    # input_68_side_names, input_68_side_types = config.get_recipe("in68")
-    # global input_68_side
-    # input_68_side = con_side.send_input_setup(input_68_side_names, input_68_side_types)
-
-    # Input int for setting the speed of the side con
-    # global speed_int_side_names, speed_int_side_types
-    # speed_int_side_names, speed_int_side_types = config.get_recipe("speed_int")
-    # global speed_int_side
-    # speed_int_side = con_side.send_input_setup(
-    #     speed_int_side_names, speed_int_side_types
-    # )
-
-    # # input bit for acknowledging cycle start
-    # global input_67_names, input_67_types
-    # input_67_names, input_67_types = config.get_recipe("in67")
-    # global input_67
-    # input_67 = con.send_input_setup(input_67_names, input_67_types)
 
     if not con.send_start():
         print("failed to start data transfer 1")
@@ -464,19 +404,6 @@ def connect_robot():
 
     speed_int.input_int_register_25 = robot_speed
     con.send(speed_int)
-
-    # setting default side values so the program can run
-    # input_65_side.input_bit_register_65 = int(False)
-    # con_side.send(input_65_side)
-
-    # input_66_side.input_bit_register_66 = int(False)
-    # con_side.send(input_66_side)
-
-    # input_68_side.input_bit_register_68 = int(False)
-    # con_side.send(input_68_side)
-
-    # speed_int_side.input_int_register_25 = robot_speed
-    # con_side.send(speed_int_side)
 
 
 def new_robot_reference():
@@ -623,27 +550,16 @@ def robot_input_reader(tref, ref, interp_forces):
                 break
             if samplingState == "waiting for sync low":
                 if (do % 2) == 0:
-                    # if not recording_sensor_reference:
-                    #     input_67.input_bit_register_67 = int(True)
-                    #     con.send(input_67)
                     samplingState = "waiting for sync high"
                     robot_output[0] = samplingState
             elif samplingState == "waiting for sync high":
                 if (do % 2) == 1:
                     previous_t = 0.0
-                    # if reference_counter >= 0:
-                    # while CON_ZASEDEN:
-                    #     do_nothing = 0
-                    # send_command("start side robot")
                     samplingState = "collecting data"
                     robot_output[0] = samplingState
             if samplingState == "collecting data":
                 if (do % 2) == 0:
                     samplingState = "waiting for sync high"
-                    # if not recording_sensor_reference:
-                    #     input_67.input_bit_register_67 = int(True)
-                    #     con.send(input_67)
-                    # END OF CYCLE MARKER
                     print("END OF CYCLE: ", cycle_number)
                     cycle_number += 1
                     for i in range(num_arduinos):
@@ -653,15 +569,10 @@ def robot_input_reader(tref, ref, interp_forces):
                             f.write("-\n")
                         with open(f"{sensor_data_filename}{i}.csv", "a+") as f:
                             f.write("-\n")
-            # if not recording_sensor_reference:
-            #     input_67.input_bit_register_67 = int(False)
-            #     con.send(input_67)
             datapt = np.append(q, qd)
             datapt = np.array(datapt).transpose()
             datapt = datapt.reshape(12, 1)
             normalized_t = get_normalized_t(ref, tref, datapt, previous_t, method)
-            # Collision detection. Only adaptation can set collision back to
-            # False:
 
             target_c = np.array(state.target_current).astype(float)
             actual_c = np.array(state.actual_current).astype(float)
@@ -677,8 +588,7 @@ def robot_input_reader(tref, ref, interp_forces):
                 or normalized_t - collision_time < -0.2
             ):
                 collision = False
-            # if normalized_t < previous_t:
-            #     print(f"ERR, time {normalized_t} prev {previous_t}\n")
+
             check_active_sensors(qd)
             previous_t = normalized_t
             robot_output[0] = "Monitoring time"
@@ -762,33 +672,18 @@ def send_command(user_input):
     elif split[0] == "speed":
         if (int(split[1]) < 101) & (int(split[1]) > 0):
             speed_int.input_int_register_25 = int(split[1])
-            # speed_int_side.input_int_register_25 = int(split[1])
             con.send(speed_int)
-            # con_side.send(speed_int_side)
             input_66.input_bit_register_66 = int(True)
-            # input_66_side.input_bit_register_66 = int(True)
             con.send(input_66)
-            # con_side.send(input_66_side)
-            # time.sleep(1)
-            # print(f"Speed set to {split[1]}%")
-            # print(split[1])
             time.sleep(0.1)
             input_66.input_bit_register_66 = int(False)
-            # input_66_side.input_bit_register_66 = int(False)
             con.send(input_66)
-            # con_side.send(input_66_side)
         else:
             print("Incorrect value. Speed must be between 1 and 100")
     elif user_input == "exit":
         print("Terminating program realtime_sync.py ... Robot will continue operation.")
         global keep_running
         keep_running = False
-    # elif user_input == "start side robot":
-    #     input_68_side.input_bit_register_68 = int(True)
-    #     con_side.send(input_68_side)
-    #     time.sleep(0.5)
-    #     input_68_side.input_bit_register_68 = int(False)
-    #     con_side.send(input_68_side)
     else:
         print("Incorrect command.")
 
@@ -798,6 +693,7 @@ def send_command(user_input):
 def output_thread():
     global user_input
     user_input = ""
+    # Inactive
     while False:
         table = Table(title="Monitoring output")
         table.add_column("Source")
@@ -823,6 +719,7 @@ def output_thread():
 
 def graph_output():
     # Must be started from the main thread.
+    # Inactive.
     global fig, axs
     fig, axs = plt.subplots(num_arduinos, 2)
     ani = FuncAnimation(fig, graph_updater, interval=1000)
