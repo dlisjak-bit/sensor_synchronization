@@ -229,13 +229,15 @@ def processData(path, maxCycles=1e6):
     plt.show(block=False)
 
 
+
+
 if __name__ == "__main__":
     paths = [
         # "../alldata/2_robot_experiment/",
         #  "../alldata/box_experiment/",
         #  "../alldata/conveyor_experiment/",
         #  "../alldata/conveyor_experiment_2/",
-        "alldata_attempt2/"
+        "alldata_attempt2/box_whole_2/"
     ]
     cycles = [1e6, 1e6, 1e6, 1e6, 1e6]
 
